@@ -5,9 +5,10 @@ import maznin.monitoring.patient.Metric;
 import io.r2dbc.postgresql.api.PostgresqlConnection;
 import io.r2dbc.postgresql.api.PostgresqlResult;
 import io.r2dbc.spi.ConnectionFactory;
-import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -26,7 +27,7 @@ public class StreamingService {
         this.connectionFactory = connectionFactory;
     }
 
-    @PostConstruct
+    @EventListener(ApplicationReadyEvent.class)
     public void init() {
         if (connectionFactory.getMetadata().getName().equalsIgnoreCase("PostgreSQL")) {
             logger.info("Initializing PostgreSQL LISTEN for measurements_channel");

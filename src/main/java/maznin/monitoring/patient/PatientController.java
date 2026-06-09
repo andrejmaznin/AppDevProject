@@ -27,6 +27,16 @@ public class PatientController {
         return patientService.registerPatient(request);
     }
 
+    @GetMapping
+    public Flux<Patient> getAllPatients() {
+        return patientService.getAllPatients();
+    }
+
+    @GetMapping("/{id}")
+    public Mono<Patient> getPatient(@PathVariable UUID id) {
+        return patientService.getPatient(id);
+    }
+
     @PostMapping("/{id}/monitoring/start")
     public Mono<Void> startMonitoring(@PathVariable UUID id) {
         return patientService.startMonitoring(id);

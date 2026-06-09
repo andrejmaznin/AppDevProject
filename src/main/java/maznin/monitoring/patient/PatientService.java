@@ -2,7 +2,10 @@ package maznin.monitoring.patient;
 
 import maznin.monitoring.engine.MetricGenerationEngine;
 import com.github.f4b6a3.uuid.UuidCreator;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.util.UUID;
@@ -28,8 +31,18 @@ public class PatientService {
         return patientRepository.save(patient);
     }
 
+    public Flux<Patient> getAllPatients() {
+        return patientRepository.findAll();
+    }
+
+    public Mono<Patient> getPatient(UUID id) {
+        return patientRepository.findById(id)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Patient not found")));
+    }
+
     public Mono<Void> startMonitoring(UUID patientId) {
         return patientRepository.findById(patientId)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Patient not found")))
                 .flatMap(patient -> {
                     patient.setMonitoringActive(true);
                     return patientRepository.save(patient);
@@ -40,6 +53,7 @@ public class PatientService {
 
     public Mono<Void> stopMonitoring(UUID patientId) {
         return patientRepository.findById(patientId)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Patient not found")))
                 .flatMap(patient -> {
                     patient.setMonitoringActive(false);
                     return patientRepository.save(patient);

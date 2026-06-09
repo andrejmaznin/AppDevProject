@@ -2,9 +2,9 @@ spring:
   application:
     name: patient-monitoring-dashboard
   r2dbc:
-    url: r2dbc:postgresql://localhost:5433/patient_db
-    username: dbuser
-    password: password
+    url: ${SPRING_R2DBC_URL:r2dbc:postgresql://127.0.0.1:5433/patient_db}
+    username: ${SPRING_R2DBC_USERNAME:dbuser}
+    password: ${SPRING_R2DBC_PASSWORD:password}
   sql:
     init:
       mode: always

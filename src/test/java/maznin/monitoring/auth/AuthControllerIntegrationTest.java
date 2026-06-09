@@ -86,6 +86,6 @@ class AuthControllerIntegrationTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(request)
                 .exchange()
-                .expectStatus().is5xxServerError(); // switchIfEmpty Mono.error results in 500 in this simple setup
+                .expectStatus().isUnauthorized();
     }
 }

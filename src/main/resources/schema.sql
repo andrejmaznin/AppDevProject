@@ -14,9 +14,21 @@ CREATE TABLE IF NOT EXISTS patients (
 CREATE TABLE IF NOT EXISTS measurements (
     id UUID PRIMARY KEY,
     patient_id UUID REFERENCES patients(id),
-    metric VARCHAR(50),
+    metric VARCHAR(50) CHECK (metric IN ('heart_rate', 'cvp', 'temperature')),
     value NUMERIC,
     measured_at TIMESTAMPTZ
+);
+
+-- BRIN index for rapid time-range aggregation (RFC 9112 / time-series optimization)
+CREATE INDEX IF NOT EXISTS measurements_measured_at_brin ON measurements USING BRIN (measured_at);
+
+CREATE TABLE IF NOT EXISTS critical_incidents (
+    id UUID PRIMARY KEY,
+    patient_id UUID REFERENCES patients(id),
+    metric VARCHAR(50) CHECK (metric IN ('heart_rate', 'cvp', 'temperature')),
+    started_at TIMESTAMPTZ NOT NULL,
+    resolved_at TIMESTAMPTZ,
+    max_deviation_value NUMERIC
 );
 
 -- Seed an admin user for testing (password: admin123)

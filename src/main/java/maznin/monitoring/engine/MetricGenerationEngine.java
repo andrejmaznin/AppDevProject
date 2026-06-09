@@ -1,5 +1,6 @@
 package maznin.monitoring.engine;
 
+import maznin.monitoring.patient.CriticalIncidentRepository;
 import maznin.monitoring.patient.MeasurementRepository;
 import maznin.monitoring.patient.Metric;
 import org.slf4j.Logger;
@@ -17,11 +18,14 @@ public class MetricGenerationEngine {
     private static final Logger logger = LoggerFactory.getLogger(MetricGenerationEngine.class);
 
     private final MeasurementRepository measurementRepository;
+    private final CriticalIncidentRepository criticalIncidentRepository;
     private final ExecutorService executorService;
     private final Map<String, MetricGeneratorTask> tasks = new ConcurrentHashMap<>();
 
-    public MetricGenerationEngine(MeasurementRepository measurementRepository) {
+    public MetricGenerationEngine(MeasurementRepository measurementRepository,
+                                  CriticalIncidentRepository criticalIncidentRepository) {
         this.measurementRepository = measurementRepository;
+        this.criticalIncidentRepository = criticalIncidentRepository;
         this.executorService = Executors.newVirtualThreadPerTaskExecutor();
     }
 
@@ -29,7 +33,8 @@ public class MetricGenerationEngine {
         for (Metric metric : Metric.values()) {
             String taskKey = getTaskKey(patientId, metric);
             if (!tasks.containsKey(taskKey)) {
-                MetricGeneratorTask task = new MetricGeneratorTask(patientId, metric, measurementRepository);
+                MetricGeneratorTask task = new MetricGeneratorTask(
+                        patientId, metric, measurementRepository, criticalIncidentRepository);
                 tasks.put(taskKey, task);
                 executorService.submit(task);
                 logger.info("Monitoring started for patient {} metric {}", patientId, metric.getKey());

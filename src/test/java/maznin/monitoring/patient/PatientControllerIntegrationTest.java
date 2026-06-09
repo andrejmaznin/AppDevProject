@@ -60,7 +60,7 @@ class PatientControllerIntegrationTest {
         final Set<UUID> stoppedMonitoring = new HashSet<>();
 
         public MetricGenerationEngineStub() {
-            super(null); // Pass null for repository, we won't use it
+            super(null, null); // Pass null repositories, we won't use them
         }
 
         @Override

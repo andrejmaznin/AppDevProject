@@ -94,8 +94,8 @@ class AuthServiceTest {
         Mono<AuthResponse> responseMono = authService.authenticate(request);
 
         StepVerifier.create(responseMono)
-                .expectErrorMatches(throwable -> throwable instanceof RuntimeException &&
-                        throwable.getMessage().equals("Invalid credentials"))
+                .expectErrorMatches(throwable -> throwable instanceof org.springframework.web.server.ResponseStatusException ex
+                        && ex.getStatusCode().value() == 401)
                 .verify();
     }
 
@@ -105,8 +105,8 @@ class AuthServiceTest {
         Mono<AuthResponse> responseMono = authService.authenticate(request);
 
         StepVerifier.create(responseMono)
-                .expectErrorMatches(throwable -> throwable instanceof RuntimeException &&
-                        throwable.getMessage().equals("Invalid credentials"))
+                .expectErrorMatches(throwable -> throwable instanceof org.springframework.web.server.ResponseStatusException ex
+                        && ex.getStatusCode().value() == 401)
                 .verify();
     }
 }
