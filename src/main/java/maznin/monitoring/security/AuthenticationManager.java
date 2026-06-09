@@ -21,7 +21,13 @@ public class AuthenticationManager implements ReactiveAuthenticationManager {
     @Override
     public Mono<Authentication> authenticate(Authentication authentication) {
         String authToken = authentication.getCredentials().toString();
-        String username = jwtService.extractUsername(authToken);
+        String username;
+        try {
+            username = jwtService.extractUsername(authToken);
+        } catch (Exception e) {
+            // Malformed/expired/forged token — treat as unauthenticated, not a server error
+            return Mono.empty();
+        }
 
         return Mono.justOrEmpty(username)
                 .flatMap(user -> {

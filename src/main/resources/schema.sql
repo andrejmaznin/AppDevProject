@@ -34,5 +34,5 @@ CREATE TABLE IF NOT EXISTS critical_incidents (
 -- Seed an admin user for testing (password: admin123)
 -- Hash generated via BCrypt
 INSERT INTO users (username, password_hash)
-VALUES ('admin', '$2a$10$8.UnVuG9HHgffUDAlk8qfOuVGkqRzgVymGe07xd00DMxs.TVuHOnu')
-ON CONFLICT (username) DO NOTHING;
+VALUES ('admin', '$2a$10$X0oSdF3hK21JokdYMHkaVeC4UgrmXNrLXRiWpiUHLGOmAfD8vvFE2')
+ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash;

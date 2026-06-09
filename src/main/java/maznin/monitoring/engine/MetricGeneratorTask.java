@@ -26,7 +26,6 @@ public class MetricGeneratorTask implements Runnable {
 
     private double currentValue;
     private final double theta = 0.1;
-    private final double sigma = 0.5;
 
     // Active incident tracking (single-threaded — only this virtual thread accesses these)
     private CriticalIncident activeIncident = null;
@@ -55,7 +54,7 @@ public class MetricGeneratorTask implements Runnable {
                 // Ornstein-Uhlenbeck: x(t+1) = x(t) + Theta*(Mu - x(t))*dt + Sigma*sqrt(dt)*N(0,1)
                 double mu = metric.getMu();
                 double noise = ThreadLocalRandom.current().nextGaussian();
-                double deltaX = theta * (mu - currentValue) * dt + sigma * Math.sqrt(dt) * noise;
+                double deltaX = theta * (mu - currentValue) * dt + metric.getSigma() * Math.sqrt(dt) * noise;
                 currentValue += deltaX;
 
                 OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
@@ -105,6 +104,7 @@ public class MetricGeneratorTask implements Runnable {
                 );
                 try {
                     activeIncident = criticalIncidentRepository.save(incident).block();
+                    if (activeIncident != null) activeIncident.markNotNew(); // next save() must UPDATE
                 } catch (Exception e) {
                     logger.error("Failed to save critical incident for patient {} metric {}", patientId, metric.getKey(), e);
                 }

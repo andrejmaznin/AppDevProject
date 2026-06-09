@@ -1,9 +1,11 @@
 package maznin.monitoring.patient;
 
 public enum Metric {
-    HEART_RATE("heart_rate", "bpm", 75.0, 60.0, 90.0, 1000),
-    CVP("cvp", "mmHg", 5.0, 2.0, 8.0, 3000),
-    TEMPERATURE("temperature", "cel", 36.6, 36.5, 37.2, 10000);
+    // Sigma is scaled to each metric's normal-range width so values stay
+    // mostly in range and critical incidents are rare events, not noise
+    HEART_RATE("heart_rate", "bpm", 75.0, 60.0, 90.0, 1000, 2.0),
+    CVP("cvp", "mmHg", 5.0, 2.0, 8.0, 3000, 0.35),
+    TEMPERATURE("temperature", "cel", 36.6, 36.5, 37.2, 10000, 0.04);
 
     private final String key;
     private final String unit;
@@ -11,14 +13,20 @@ public enum Metric {
     private final double rangeMin;
     private final double rangeMax;
     private final long tickRateMs;
+    private final double sigma;
 
-    Metric(String key, String unit, double mu, double rangeMin, double rangeMax, long tickRateMs) {
+    Metric(String key, String unit, double mu, double rangeMin, double rangeMax, long tickRateMs, double sigma) {
         this.key = key;
         this.unit = unit;
         this.mu = mu;
         this.rangeMin = rangeMin;
         this.rangeMax = rangeMax;
         this.tickRateMs = tickRateMs;
+        this.sigma = sigma;
+    }
+
+    public double getSigma() {
+        return sigma;
     }
 
     public String getKey() {

@@ -1,0 +1,435 @@
+'use strict';
+
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+
+const API = '/api/v1';
+
+const METRICS = {
+  heart_rate:  { label: 'Частота пульса', unit: 'bpm',  min: 60,   max: 90,   color: '#ff6b6b', decimals: 1 },
+  cvp:         { label: 'ЦВД',            unit: 'mmHg', min: 2.0,  max: 8.0,  color: '#4dabf7', decimals: 2 },
+  temperature: { label: 'Температура',    unit: '°C',   min: 36.5, max: 37.2, color: '#ffd43b', decimals: 2 },
+};
+
+const MAX_BUFFER = 2000;  // raw points kept in memory per metric
+const MAX_RENDER = 240;   // points drawn after downsampling
+
+// ---------------------------------------------------------------------------
+// State management (buffering metrics for rendering)
+// ---------------------------------------------------------------------------
+
+const state = {
+  token: localStorage.getItem('token'),
+  patients: [],
+  selectedId: null,
+  buffers: {},          // metric key -> MetricBuffer
+  unsubscribe: null,    // active SSE subscription cancel fn
+};
+
+class MetricBuffer {
+  constructor() { this.points = []; }
+
+  push(t, v) {
+    this.points.push({ t, v });
+    if (this.points.length > MAX_BUFFER) {
+      this.points.splice(0, this.points.length - MAX_BUFFER);
+    }
+  }
+
+  // Min/max bucket downsampling: preserves spikes that plain striding would lose
+  downsampled() {
+    const pts = this.points;
+    if (pts.length <= MAX_RENDER) return pts;
+    const bucketSize = Math.ceil(pts.length / (MAX_RENDER / 2));
+    const out = [];
+    for (let i = 0; i < pts.length; i += bucketSize) {
+      const slice = pts.slice(i, i + bucketSize);
+      let mn = slice[0], mx = slice[0];
+      for (const p of slice) {
+        if (p.v < mn.v) mn = p;
+        if (p.v > mx.v) mx = p;
+      }
+      if (mn === mx) out.push(mn);
+      else if (mn.t <= mx.t) out.push(mn, mx);
+      else out.push(mx, mn);
+    }
+    return out;
+  }
+
+  last() { return this.points[this.points.length - 1] || null; }
+}
+
+// ---------------------------------------------------------------------------
+// API helpers (RFC 6750 Bearer, RFC 7807 error parsing)
+// ---------------------------------------------------------------------------
+
+async function api(path, opts = {}) {
+  const res = await fetch(API + path, {
+    ...opts,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(state.token ? { Authorization: 'Bearer ' + state.token } : {}),
+      ...(opts.headers || {}),
+    },
+  });
+  if (res.status === 401 && state.token) {
+    logout();
+    throw new Error('Сессия истекла, войдите снова');
+  }
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const problem = await res.json(); // RFC 7807 Problem Details
+      detail = problem.detail || problem.title || detail;
+    } catch (_) { /* non-JSON body */ }
+    throw new Error(detail);
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+// ---------------------------------------------------------------------------
+// SSE stream (Observer pattern). EventSource can't send the Authorization
+// header, so the text/event-stream is consumed via fetch + ReadableStream.
+// ---------------------------------------------------------------------------
+
+function subscribeStream(patientId, onMetric, onStatus) {
+  const ctrl = new AbortController();
+  let stopped = false;
+
+  (async () => {
+    while (!stopped) {
+      try {
+        const res = await fetch(`${API}/patients/${patientId}/stream`, {
+          headers: {
+            Authorization: 'Bearer ' + state.token,
+            Accept: 'text/event-stream',
+          },
+          signal: ctrl.signal,
+        });
+        if (!res.ok || !res.body) throw new Error('stream HTTP ' + res.status);
+        onStatus(true);
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+
+          const events = buf.split('\n\n');
+          buf = events.pop(); // keep incomplete tail
+          for (const evt of events) {
+            let type = 'message', data = '';
+            for (const line of evt.split('\n')) {
+              if (line.startsWith('event:')) type = line.slice(6).trim();
+              else if (line.startsWith('data:')) data += line.slice(5).trim();
+            }
+            if (type === 'metric' && data) {
+              try { onMetric(JSON.parse(data)); } catch (_) { /* skip bad frame */ }
+            }
+          }
+        }
+      } catch (e) {
+        if (e.name === 'AbortError') return;
+      }
+      onStatus(false);
+      if (!stopped) await new Promise(r => setTimeout(r, 2000)); // reconnect
+    }
+  })();
+
+  return () => { stopped = true; ctrl.abort(); };
+}
+
+// ---------------------------------------------------------------------------
+// Canvas chart rendering
+// ---------------------------------------------------------------------------
+
+function drawChart(canvas, cfg, buffer) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+  }
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+
+  const pts = buffer.downsampled();
+  const padL = 44, padR = 8, padT = 8, padB = 18;
+  const plotW = w - padL - padR, plotH = h - padT - padB;
+
+  // Y range: data extent merged with the normal band, plus headroom
+  let lo = cfg.min, hi = cfg.max;
+  for (const p of pts) { if (p.v < lo) lo = p.v; if (p.v > hi) hi = p.v; }
+  const pad = (hi - lo) * 0.15 || 1;
+  lo -= pad; hi += pad;
+
+  const y = v => padT + plotH - ((v - lo) / (hi - lo)) * plotH;
+
+  // Normal range band
+  ctx.fillStyle = 'rgba(81, 207, 102, 0.08)';
+  ctx.fillRect(padL, y(cfg.max), plotW, y(cfg.min) - y(cfg.max));
+  ctx.strokeStyle = 'rgba(81, 207, 102, 0.35)';
+  ctx.setLineDash([4, 4]);
+  for (const bound of [cfg.min, cfg.max]) {
+    ctx.beginPath();
+    ctx.moveTo(padL, y(bound));
+    ctx.lineTo(w - padR, y(bound));
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  // Y axis labels
+  ctx.fillStyle = '#8b95a1';
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const v = lo + (hi - lo) * (i / 4);
+    ctx.fillText(v.toFixed(1), padL - 6, y(v) + 4);
+  }
+
+  if (pts.length < 2) return;
+
+  // Time-proportional X mapping over the visible window
+  const t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+  const span = Math.max(t1 - t0, 1);
+  const x = t => padL + ((t - t0) / span) * plotW;
+
+  // Series line
+  ctx.strokeStyle = cfg.color;
+  ctx.lineWidth = 1.6;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  pts.forEach((p, i) => i === 0 ? ctx.moveTo(x(p.t), y(p.v)) : ctx.lineTo(x(p.t), y(p.v)));
+  ctx.stroke();
+
+  // Latest point marker
+  const lastPt = pts[pts.length - 1];
+  const critical = lastPt.v < cfg.min || lastPt.v > cfg.max;
+  ctx.fillStyle = critical ? '#ff6b6b' : cfg.color;
+  ctx.beginPath();
+  ctx.arc(x(lastPt.t), y(lastPt.v), 3.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Time axis: window length
+  ctx.fillStyle = '#8b95a1';
+  ctx.textAlign = 'left';
+  ctx.fillText('-' + Math.round(span / 1000) + ' c', padL, h - 4);
+  ctx.textAlign = 'right';
+  ctx.fillText('сейчас', w - padR, h - 4);
+}
+
+// ---------------------------------------------------------------------------
+// DOM
+// ---------------------------------------------------------------------------
+
+const $ = id => document.getElementById(id);
+
+function show(view) {
+  $('login-view').hidden = view !== 'login';
+  $('app-view').hidden = view !== 'app';
+}
+
+function logout() {
+  state.token = null;
+  localStorage.removeItem('token');
+  closeStream();
+  state.selectedId = null;
+  show('login');
+}
+
+function closeStream() {
+  if (state.unsubscribe) { state.unsubscribe(); state.unsubscribe = null; }
+}
+
+// --- patients ---
+
+async function refreshPatients() {
+  state.patients = await api('/patients');
+  renderPatientList();
+  updateActionButtons();
+}
+
+function updateActionButtons() {
+  const startBtn = $('start-btn');
+  const stopBtn = $('stop-btn');
+  const p = state.patients.find(x => x.id === state.selectedId);
+  if (!p) {
+    startBtn.disabled = stopBtn.disabled = true;
+    return;
+  }
+  startBtn.disabled = p.monitoringActive;
+  stopBtn.disabled = !p.monitoringActive;
+}
+
+function renderPatientList() {
+  const ul = $('patient-list');
+  ul.innerHTML = '';
+  for (const p of state.patients) {
+    const li = document.createElement('li');
+    li.className = p.id === state.selectedId ? 'selected' : '';
+
+    const name = document.createElement('span');
+    name.textContent = `${p.firstName} ${p.lastName}`;
+
+    const badge = document.createElement('span');
+    badge.className = 'badge' + (p.monitoringActive ? ' active' : '');
+    badge.textContent = p.monitoringActive ? 'наблюдение' : 'пауза';
+
+    li.append(name, badge);
+    li.onclick = () => selectPatient(p.id);
+    ul.appendChild(li);
+  }
+}
+
+function selectPatient(id) {
+  if (state.selectedId === id) return;
+  state.selectedId = id;
+  closeStream();
+
+  const p = state.patients.find(x => x.id === id);
+  $('placeholder').hidden = true;
+  $('patient-panel').hidden = false;
+  $('patient-title').textContent = `${p.firstName} ${p.lastName}`;
+  renderPatientList();
+  updateActionButtons();
+  buildCharts();
+
+  state.unsubscribe = subscribeStream(id, onMetricFrame, live => {
+    const el = $('stream-status');
+    el.textContent = live ? '● поток активен' : 'переподключение…';
+    el.className = 'status' + (live ? ' live' : ' muted');
+  });
+}
+
+// --- charts ---
+
+function buildCharts() {
+  state.buffers = {};
+  const wrap = $('charts');
+  wrap.innerHTML = '';
+
+  for (const [key, cfg] of Object.entries(METRICS)) {
+    state.buffers[key] = new MetricBuffer();
+
+    const card = document.createElement('div');
+    card.className = 'chart-card';
+    card.innerHTML = `
+      <div class="chart-top">
+        <h3>${cfg.label}<span class="range">норма ${cfg.min}–${cfg.max} ${cfg.unit}</span></h3>
+        <div class="value" id="value-${key}">—</div>
+      </div>
+      <canvas id="canvas-${key}"></canvas>`;
+    wrap.appendChild(card);
+
+    drawChart($(`canvas-${key}`), cfg, state.buffers[key]);
+  }
+}
+
+// SenML frame (RFC 8428): {"n":"heart_rate","u":"bpm","v":75.2,"t":"...Z"}
+function onMetricFrame(senml) {
+  const cfg = METRICS[senml.n];
+  const buffer = state.buffers[senml.n];
+  if (!cfg || !buffer) return;
+
+  const t = senml.t ? Date.parse(senml.t) : Date.now();
+  buffer.push(t, senml.v);
+
+  const valueEl = $(`value-${senml.n}`);
+  const critical = senml.v < cfg.min || senml.v > cfg.max;
+  valueEl.className = 'value' + (critical ? ' critical' : '');
+  valueEl.innerHTML = `${senml.v.toFixed(cfg.decimals)}<span class="unit">${cfg.unit}</span>`;
+
+  drawChart($(`canvas-${senml.n}`), cfg, buffer);
+}
+
+// ---------------------------------------------------------------------------
+// Event wiring
+// ---------------------------------------------------------------------------
+
+$('login-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const errEl = $('login-error');
+  errEl.hidden = true;
+  $('login-btn').disabled = true;
+  try {
+    const resp = await api('/auth/token', {
+      method: 'POST',
+      body: JSON.stringify({
+        username: $('login-username').value,
+        password: $('login-password').value,
+      }),
+    });
+    state.token = resp.token;
+    localStorage.setItem('token', state.token);
+    show('app');
+    await refreshPatients();
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.hidden = false;
+  } finally {
+    $('login-btn').disabled = false;
+  }
+});
+
+$('logout-btn').addEventListener('click', logout);
+
+$('add-patient-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  try {
+    await api('/patients', {
+      method: 'POST',
+      body: JSON.stringify({
+        firstName: $('new-first-name').value,
+        lastName: $('new-last-name').value,
+      }),
+    });
+    e.target.reset();
+    await refreshPatients();
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+async function toggleMonitoring(action) {
+  if (!state.selectedId) return;
+  // Lock both buttons for the duration of the request to rule out double clicks
+  $('start-btn').disabled = true;
+  $('stop-btn').disabled = true;
+  try {
+    await api(`/patients/${state.selectedId}/monitoring/${action}`, { method: 'POST' });
+    await refreshPatients();
+  } catch (err) {
+    alert(err.message);
+    updateActionButtons(); // restore buttons from actual state on failure
+  }
+}
+
+$('start-btn').addEventListener('click', () => toggleMonitoring('start'));
+$('stop-btn').addEventListener('click', () => toggleMonitoring('stop'));
+
+window.addEventListener('resize', () => {
+  for (const [key, cfg] of Object.entries(METRICS)) {
+    const canvas = $(`canvas-${key}`);
+    if (canvas && state.buffers[key]) drawChart(canvas, cfg, state.buffers[key]);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------------------
+
+(async function init() {
+  if (!state.token) { show('login'); return; }
+  try {
+    await refreshPatients();
+    show('app');
+  } catch (_) {
+    logout();
+  }
+})();

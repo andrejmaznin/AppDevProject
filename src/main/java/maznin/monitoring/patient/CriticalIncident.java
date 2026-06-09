@@ -1,13 +1,16 @@
 package maznin.monitoring.patient;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.annotation.Transient;
+import org.springframework.data.domain.Persistable;
 import org.springframework.data.relational.core.mapping.Table;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
 @Table("critical_incidents")
-public class CriticalIncident {
+public class CriticalIncident implements Persistable<UUID> {
     @Id
     private UUID id;
     private UUID patientId;
@@ -15,6 +18,10 @@ public class CriticalIncident {
     private OffsetDateTime startedAt;
     private OffsetDateTime resolvedAt;
     private Double maxDeviationValue;
+
+    // IDs are assigned in code (UUIDv7); incident is INSERTed once, then UPDATEd on resolve
+    @Transient
+    private boolean newEntity = false;
 
     public CriticalIncident() {}
 
@@ -24,6 +31,17 @@ public class CriticalIncident {
         this.metric = metric;
         this.startedAt = startedAt;
         this.maxDeviationValue = maxDeviationValue;
+        this.newEntity = true;
+    }
+
+    @Override
+    @JsonIgnore
+    public boolean isNew() {
+        return newEntity;
+    }
+
+    public void markNotNew() {
+        this.newEntity = false;
     }
 
     public UUID getId() { return id; }
