@@ -61,6 +61,24 @@
         </header>
 
         <section id="charts" class="charts"></section>
+
+        <section class="stats-card">
+          <div class="stats-header">
+            <h3>Статистика показателей</h3>
+            <div class="stats-controls">
+              <select id="stats-interval">
+                <option value="5">за 5 минут</option>
+                <option value="15">за 15 минут</option>
+                <option value="60" selected>за 1 час</option>
+                <option value="1440">за 24 часа</option>
+              </select>
+              <button id="stats-refresh" class="ghost">Обновить</button>
+            </div>
+          </div>
+          <div id="stats-body" class="stats-body">
+            <p class="muted">Нет данных</p>
+          </div>
+        </section>
       </div>
     </main>
   </div>

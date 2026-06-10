@@ -191,3 +191,47 @@ input:focus { outline: none; border-color: var(--accent); }
   height: 160px;
   display: block;
 }
+
+/* ---------- Statistics ---------- */
+.stats-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  margin-top: 16px;
+}
+.stats-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.stats-header h3 { font-size: 15px; font-weight: 600; }
+.stats-controls { display: flex; gap: 8px; align-items: center; }
+.stats-controls select {
+  font: inherit;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 7px 10px;
+}
+
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.stats-table th, .stats-table td {
+  padding: 8px 10px;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.stats-table th { color: var(--muted); font-weight: 500; }
+.stats-table th:first-child, .stats-table td:first-child { text-align: left; }
+.stats-table tr:last-child td { border-bottom: none; }
+.stats-table .na { color: var(--muted); }

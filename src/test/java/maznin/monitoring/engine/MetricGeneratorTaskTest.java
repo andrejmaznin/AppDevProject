@@ -36,6 +36,7 @@ class MetricGeneratorTaskTest {
             return Mono.just(entity);
         }
 
+        @Override public Flux<Measurement> findRecentByPatientId(UUID patientId, int limit) { return null; }
         @Override public <S extends Measurement> Flux<S> saveAll(Iterable<S> entities) { return null; }
         @Override public <S extends Measurement> Flux<S> saveAll(Publisher<S> entityStream) { return null; }
         @Override public Mono<Measurement> findById(UUID uuid) { return null; }

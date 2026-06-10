@@ -287,7 +287,7 @@ function renderPatientList() {
   }
 }
 
-function selectPatient(id) {
+async function selectPatient(id) {
   if (state.selectedId === id) return;
   state.selectedId = id;
   closeStream();
@@ -299,12 +299,95 @@ function selectPatient(id) {
   renderPatientList();
   updateActionButtons();
   buildCharts();
+  loadStatistics();
+
+  // Pre-fill the buffers with stored history before going live, so charts
+  // show the latest measurements immediately on (re)opening a patient
+  await loadHistory(id);
+  if (state.selectedId !== id) return; // user switched patients while loading
 
   state.unsubscribe = subscribeStream(id, onMetricFrame, live => {
     const el = $('stream-status');
     el.textContent = live ? '● поток активен' : 'переподключение…';
     el.className = 'status' + (live ? ' live' : ' muted');
   });
+}
+
+// --- measurement history (last N stored points per metric) ---
+
+async function loadHistory(id) {
+  let history;
+  try {
+    history = await api(`/patients/${id}/measurements?limit=100`);
+  } catch (_) {
+    return; // history is best-effort; live stream still works without it
+  }
+  if (state.selectedId !== id) return;
+
+  for (const frame of history || []) {
+    const buffer = state.buffers[frame.n];
+    if (!buffer || frame.v == null) continue;
+    buffer.push(frame.t ? Date.parse(frame.t) : Date.now(), frame.v);
+  }
+
+  for (const [key, cfg] of Object.entries(METRICS)) {
+    const buffer = state.buffers[key];
+    const last = buffer.last();
+    if (last) updateValueLabel(key, cfg, last.v);
+    drawChart($(`canvas-${key}`), cfg, buffer);
+  }
+}
+
+// --- statistics (mean, variance, quartiles over a chosen interval) ---
+
+async function loadStatistics() {
+  if (!state.selectedId) return;
+  const minutes = Number($('stats-interval').value);
+  const to = new Date();
+  const from = new Date(to.getTime() - minutes * 60_000);
+  const qs = `from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`;
+
+  const body = $('stats-body');
+  try {
+    const stats = await api(`/patients/${state.selectedId}/statistics?${qs}`);
+    renderStatistics(stats || []);
+  } catch (err) {
+    body.innerHTML = '';
+    const p = document.createElement('p');
+    p.className = 'error';
+    p.textContent = 'Ошибка загрузки статистики: ' + err.message;
+    body.appendChild(p);
+  }
+}
+
+function renderStatistics(stats) {
+  const body = $('stats-body');
+  const byMetric = Object.fromEntries(stats.map(s => [s.metric, s]));
+  const fmt = (v, d) => (v == null ? '<span class="na">—</span>' : v.toFixed(d));
+
+  const rows = Object.entries(METRICS).map(([key, cfg]) => {
+    const s = byMetric[key];
+    const d = cfg.decimals;
+    return `<tr>
+      <td>${cfg.label}, ${cfg.unit}</td>
+      <td>${s ? s.count : '<span class="na">—</span>'}</td>
+      <td>${fmt(s?.mean, d)}</td>
+      <td>${fmt(s?.variance, d + 1)}</td>
+      <td>${fmt(s?.q1, d)}</td>
+      <td>${fmt(s?.median, d)}</td>
+      <td>${fmt(s?.q3, d)}</td>
+      <td>${fmt(s?.min, d)}</td>
+      <td>${fmt(s?.max, d)}</td>
+    </tr>`;
+  }).join('');
+
+  body.innerHTML = `<table class="stats-table">
+    <thead><tr>
+      <th>Показатель</th><th>N</th><th>Среднее</th><th>Дисперсия</th>
+      <th>Q1</th><th>Медиана</th><th>Q3</th><th>Мин</th><th>Макс</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
 }
 
 // --- charts ---
@@ -331,6 +414,13 @@ function buildCharts() {
   }
 }
 
+function updateValueLabel(key, cfg, v) {
+  const valueEl = $(`value-${key}`);
+  const critical = v < cfg.min || v > cfg.max;
+  valueEl.className = 'value' + (critical ? ' critical' : '');
+  valueEl.innerHTML = `${v.toFixed(cfg.decimals)}<span class="unit">${cfg.unit}</span>`;
+}
+
 // SenML frame (RFC 8428): {"n":"heart_rate","u":"bpm","v":75.2,"t":"...Z"}
 function onMetricFrame(senml) {
   const cfg = METRICS[senml.n];
@@ -339,12 +429,7 @@ function onMetricFrame(senml) {
 
   const t = senml.t ? Date.parse(senml.t) : Date.now();
   buffer.push(t, senml.v);
-
-  const valueEl = $(`value-${senml.n}`);
-  const critical = senml.v < cfg.min || senml.v > cfg.max;
-  valueEl.className = 'value' + (critical ? ' critical' : '');
-  valueEl.innerHTML = `${senml.v.toFixed(cfg.decimals)}<span class="unit">${cfg.unit}</span>`;
-
+  updateValueLabel(senml.n, cfg, senml.v);
   drawChart($(`canvas-${senml.n}`), cfg, buffer);
 }
 
@@ -412,6 +497,9 @@ async function toggleMonitoring(action) {
 
 $('start-btn').addEventListener('click', () => toggleMonitoring('start'));
 $('stop-btn').addEventListener('click', () => toggleMonitoring('stop'));
+
+$('stats-refresh').addEventListener('click', loadStatistics);
+$('stats-interval').addEventListener('change', loadStatistics);
 
 window.addEventListener('resize', () => {
   for (const [key, cfg] of Object.entries(METRICS)) {

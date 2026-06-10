@@ -22,6 +22,7 @@ class PatientControllerIntegrationTest {
     private WebTestClient webTestClient;
     private PatientRepository patientRepository;
     private MetricGenerationEngineStub metricGenerationEngine;
+    private MeasurementRepositoryStub measurementRepository;
 
     private static class PatientRepositoryStub implements PatientRepository {
         private final Map<UUID, Patient> patients = new HashMap<>();
@@ -52,6 +53,37 @@ class PatientControllerIntegrationTest {
         @Override public Mono<Void> deleteAllById(Iterable<? extends UUID> uuids) { return null; }
         @Override public Mono<Void> deleteAll(Iterable<? extends Patient> entities) { return null; }
         @Override public Mono<Void> deleteAll(Publisher<? extends Patient> entityStream) { return null; }
+        @Override public Mono<Void> deleteAll() { return null; }
+    }
+
+    private static class MeasurementRepositoryStub implements MeasurementRepository {
+        final java.util.List<Measurement> measurements = new java.util.ArrayList<>();
+
+        @Override
+        public Flux<Measurement> findRecentByPatientId(UUID patientId, int limit) {
+            return Flux.fromIterable(measurements.stream()
+                    .filter(m -> m.getPatientId().equals(patientId))
+                    .sorted(java.util.Comparator.comparing(Measurement::getMeasuredAt))
+                    .toList());
+        }
+
+        @Override public <S extends Measurement> Mono<S> save(S entity) { return null; }
+        @Override public <S extends Measurement> Flux<S> saveAll(Iterable<S> entities) { return null; }
+        @Override public <S extends Measurement> Flux<S> saveAll(Publisher<S> entityStream) { return null; }
+        @Override public Mono<Measurement> findById(UUID uuid) { return null; }
+        @Override public Mono<Measurement> findById(Publisher<UUID> id) { return null; }
+        @Override public Mono<Boolean> existsById(UUID uuid) { return null; }
+        @Override public Mono<Boolean> existsById(Publisher<UUID> id) { return null; }
+        @Override public Flux<Measurement> findAll() { return null; }
+        @Override public Flux<Measurement> findAllById(Iterable<UUID> uuids) { return null; }
+        @Override public Flux<Measurement> findAllById(Publisher<UUID> idStream) { return null; }
+        @Override public Mono<Long> count() { return null; }
+        @Override public Mono<Void> deleteById(UUID uuid) { return null; }
+        @Override public Mono<Void> deleteById(Publisher<UUID> id) { return null; }
+        @Override public Mono<Void> delete(Measurement entity) { return null; }
+        @Override public Mono<Void> deleteAllById(Iterable<? extends UUID> uuids) { return null; }
+        @Override public Mono<Void> deleteAll(Iterable<? extends Measurement> entities) { return null; }
+        @Override public Mono<Void> deleteAll(Publisher<? extends Measurement> entityStream) { return null; }
         @Override public Mono<Void> deleteAll() { return null; }
     }
 
@@ -89,8 +121,18 @@ class PatientControllerIntegrationTest {
             }
         };
 
+        maznin.monitoring.api.StatisticsService statisticsService = new maznin.monitoring.api.StatisticsService(null) {
+            @Override
+            public Flux<maznin.monitoring.api.MetricStatistics> getStatistics(
+                    UUID patientId, java.time.OffsetDateTime from, java.time.OffsetDateTime to) {
+                return Flux.empty();
+            }
+        };
+
+        measurementRepository = new MeasurementRepositoryStub();
         PatientService patientService = new PatientService(patientRepository, metricGenerationEngine);
-        PatientController patientController = new PatientController(patientService, streamingService);
+        PatientController patientController = new PatientController(patientService, streamingService, statisticsService,
+                measurementRepository);
         
         webTestClient = WebTestClient.bindToController(patientController).build();
     }
@@ -123,6 +165,41 @@ class PatientControllerIntegrationTest {
                 .expectStatus().isOk();
 
         assertTrue(metricGenerationEngine.startedMonitoring.contains(patientId));
+    }
+
+    @Test
+    void getMeasurements_ExistingPatient_ReturnsSenMLHistoryInChronologicalOrder() {
+        UUID patientId = UUID.randomUUID();
+        ((PatientRepositoryStub) patientRepository).patients
+                .put(patientId, new Patient(patientId, "Jane", "Doe", true));
+
+        java.time.OffsetDateTime base = java.time.OffsetDateTime.parse("2026-06-10T10:00:00Z");
+        measurementRepository.measurements.add(
+                new Measurement(UUID.randomUUID(), patientId, "heart_rate", 80.0, base.plusSeconds(1)));
+        measurementRepository.measurements.add(
+                new Measurement(UUID.randomUUID(), patientId, "heart_rate", 75.0, base));
+        measurementRepository.measurements.add(
+                new Measurement(UUID.randomUUID(), UUID.randomUUID(), "heart_rate", 99.0, base)); // other patient
+
+        webTestClient.get()
+                .uri("/api/v1/patients/{id}/measurements?limit=100", patientId)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.length()").isEqualTo(2)
+                .jsonPath("$[0].n").isEqualTo("heart_rate")
+                .jsonPath("$[0].u").isEqualTo("bpm")
+                .jsonPath("$[0].v").isEqualTo(75.0)
+                .jsonPath("$[0].t").isEqualTo("2026-06-10T10:00:00Z")
+                .jsonPath("$[1].v").isEqualTo(80.0);
+    }
+
+    @Test
+    void getMeasurements_UnknownPatient_ReturnsNotFound() {
+        webTestClient.get()
+                .uri("/api/v1/patients/{id}/measurements", UUID.randomUUID())
+                .exchange()
+                .expectStatus().isNotFound();
     }
 
     @Test
