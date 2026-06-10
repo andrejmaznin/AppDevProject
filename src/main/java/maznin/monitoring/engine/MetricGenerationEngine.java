@@ -1,10 +1,12 @@
 package maznin.monitoring.engine;
 
+import maznin.monitoring.api.IncidentStreamingService;
 import maznin.monitoring.patient.CriticalIncidentRepository;
 import maznin.monitoring.patient.MeasurementRepository;
 import maznin.monitoring.patient.Metric;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
@@ -19,13 +21,22 @@ public class MetricGenerationEngine {
 
     private final MeasurementRepository measurementRepository;
     private final CriticalIncidentRepository criticalIncidentRepository;
+    private final IncidentStreamingService incidentStreamingService;
     private final ExecutorService executorService;
     private final Map<String, MetricGeneratorTask> tasks = new ConcurrentHashMap<>();
 
     public MetricGenerationEngine(MeasurementRepository measurementRepository,
                                   CriticalIncidentRepository criticalIncidentRepository) {
+        this(measurementRepository, criticalIncidentRepository, null);
+    }
+
+    @Autowired
+    public MetricGenerationEngine(MeasurementRepository measurementRepository,
+                                  CriticalIncidentRepository criticalIncidentRepository,
+                                  IncidentStreamingService incidentStreamingService) {
         this.measurementRepository = measurementRepository;
         this.criticalIncidentRepository = criticalIncidentRepository;
+        this.incidentStreamingService = incidentStreamingService;
         this.executorService = Executors.newVirtualThreadPerTaskExecutor();
     }
 
@@ -34,7 +45,7 @@ public class MetricGenerationEngine {
             String taskKey = getTaskKey(patientId, metric);
             if (!tasks.containsKey(taskKey)) {
                 MetricGeneratorTask task = new MetricGeneratorTask(
-                        patientId, metric, measurementRepository, criticalIncidentRepository);
+                        patientId, metric, measurementRepository, criticalIncidentRepository, incidentStreamingService);
                 tasks.put(taskKey, task);
                 executorService.submit(task);
                 logger.info("Monitoring started for patient {} metric {}", patientId, metric.getKey());

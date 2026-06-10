@@ -1,5 +1,6 @@
 package maznin.monitoring.patient;
 
+import maznin.monitoring.api.IncidentStreamingService;
 import maznin.monitoring.api.MetricStatistics;
 import maznin.monitoring.api.SenMLMeasurement;
 import maznin.monitoring.api.StatisticsService;
@@ -23,13 +24,19 @@ public class PatientController {
     private final StreamingService streamingService;
     private final StatisticsService statisticsService;
     private final MeasurementRepository measurementRepository;
+    private final CriticalIncidentRepository criticalIncidentRepository;
+    private final IncidentStreamingService incidentStreamingService;
 
     public PatientController(PatientService patientService, StreamingService streamingService,
-                             StatisticsService statisticsService, MeasurementRepository measurementRepository) {
+                             StatisticsService statisticsService, MeasurementRepository measurementRepository,
+                             CriticalIncidentRepository criticalIncidentRepository,
+                             IncidentStreamingService incidentStreamingService) {
         this.patientService = patientService;
         this.streamingService = streamingService;
         this.statisticsService = statisticsService;
         this.measurementRepository = measurementRepository;
+        this.criticalIncidentRepository = criticalIncidentRepository;
+        this.incidentStreamingService = incidentStreamingService;
     }
 
     @PostMapping
@@ -82,6 +89,21 @@ public class PatientController {
             if (metric.getKey().equals(metricKey)) return metric.getUnit();
         }
         return "";
+    }
+
+    @GetMapping("/{id}/incidents")
+    public Flux<CriticalIncident> getIncidents(@PathVariable UUID id) {
+        return patientService.getPatient(id)
+                .thenMany(criticalIncidentRepository.findTop20ByPatientIdOrderByStartedAtDesc(id));
+    }
+
+    @GetMapping(value = "/{id}/incidents/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<ServerSentEvent<CriticalIncident>> getIncidentStream(@PathVariable UUID id) {
+        return incidentStreamingService.getStream(id)
+                .map(incident -> ServerSentEvent.<CriticalIncident>builder()
+                        .event("incident")
+                        .data(incident)
+                        .build());
     }
 
     @GetMapping(value = "/{id}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)

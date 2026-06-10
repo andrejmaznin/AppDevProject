@@ -192,6 +192,114 @@ input:focus { outline: none; border-color: var(--accent); }
   display: block;
 }
 
+.chart-top-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.meas-toggle {
+  font-size: 12px;
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+.meas-toggle.active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.meas-panel {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.meas-empty { font-size: 13px; text-align: center; padding: 8px 0; }
+
+.meas-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.meas-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid rgba(42, 52, 65, 0.6);
+}
+.meas-table tr:last-child td { border-bottom: none; }
+.meas-table .meas-time { color: var(--muted); }
+.meas-table .meas-val { font-weight: 600; text-align: right; }
+.meas-table .meas-val.critical { color: var(--red); }
+.meas-table .meas-unit { color: var(--muted); padding-left: 4px; }
+.meas-table .critical-row { background: rgba(255, 107, 107, 0.06); }
+
+/* ---------- Incidents ---------- */
+.incidents-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  margin-top: 16px;
+}
+.incidents-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  gap: 8px;
+}
+.incidents-header h3 { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+
+.incident-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--red);
+  color: #fff;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  animation: pulse 1s infinite alternate;
+}
+
+.incidents-body { overflow-x: auto; }
+.incidents-empty { font-size: 13px; text-align: center; padding: 8px 0; }
+
+.incidents-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.incidents-table th, .incidents-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.incidents-table th { color: var(--muted); font-weight: 500; }
+.incidents-table tr:last-child td { border-bottom: none; }
+.incidents-table .incident-active-row td { background: rgba(255, 107, 107, 0.07); }
+.incidents-table .badge-active { color: var(--red); font-weight: 600; }
+
+.patient-list .incident-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--red);
+  color: #fff;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+}
+
 /* ---------- Statistics ---------- */
 .stats-card {
   background: var(--panel);

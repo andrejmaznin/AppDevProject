@@ -75,6 +75,7 @@ class MetricGeneratorTaskTest {
         @Override public Mono<Void> deleteAll(Iterable<? extends CriticalIncident> entities) { return Mono.empty(); }
         @Override public Mono<Void> deleteAll(Publisher<? extends CriticalIncident> entityStream) { return Mono.empty(); }
         @Override public Mono<Void> deleteAll() { return Mono.empty(); }
+        @Override public Flux<CriticalIncident> findTop20ByPatientIdOrderByStartedAtDesc(java.util.UUID patientId) { return Flux.empty(); }
     }
 
     @Test

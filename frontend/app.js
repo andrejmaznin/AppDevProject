@@ -23,8 +23,10 @@ const state = {
   token: localStorage.getItem('token'),
   patients: [],
   selectedId: null,
-  buffers: {},          // metric key -> MetricBuffer
-  unsubscribe: null,    // active SSE subscription cancel fn
+  buffers: {},              // metric key -> MetricBuffer
+  unsubscribe: null,        // active metrics SSE cancel fn
+  incidentUnsubscribe: null,// active incidents SSE cancel fn
+  incidentMap: new Map(),   // incidentId -> incident object
 };
 
 class MetricBuffer {
@@ -144,6 +146,50 @@ function subscribeStream(patientId, onMetric, onStatus) {
   return () => { stopped = true; ctrl.abort(); };
 }
 
+function subscribeIncidentStream(patientId, onIncident) {
+  const ctrl = new AbortController();
+  let stopped = false;
+
+  (async () => {
+    while (!stopped) {
+      try {
+        const res = await fetch(`${API}/patients/${patientId}/incidents/stream`, {
+          headers: { Authorization: 'Bearer ' + state.token, Accept: 'text/event-stream' },
+          signal: ctrl.signal,
+        });
+        if (!res.ok || !res.body) throw new Error('incidents stream HTTP ' + res.status);
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const events = buf.split('\n\n');
+          buf = events.pop();
+          for (const evt of events) {
+            let type = 'message', data = '';
+            for (const line of evt.split('\n')) {
+              if (line.startsWith('event:')) type = line.slice(6).trim();
+              else if (line.startsWith('data:')) data += line.slice(5).trim();
+            }
+            if (type === 'incident' && data) {
+              try { onIncident(JSON.parse(data)); } catch (_) {}
+            }
+          }
+        }
+      } catch (e) {
+        if (e.name === 'AbortError') return;
+      }
+      if (!stopped) await new Promise(r => setTimeout(r, 2000));
+    }
+  })();
+
+  return () => { stopped = true; ctrl.abort(); };
+}
+
 // ---------------------------------------------------------------------------
 // Canvas chart rendering
 // ---------------------------------------------------------------------------
@@ -245,6 +291,72 @@ function logout() {
 
 function closeStream() {
   if (state.unsubscribe) { state.unsubscribe(); state.unsubscribe = null; }
+  if (state.incidentUnsubscribe) { state.incidentUnsubscribe(); state.incidentUnsubscribe = null; }
+}
+
+// --- incidents ---
+
+function formatIncidentDuration(startedAt, resolvedAt) {
+  const end = resolvedAt ? new Date(resolvedAt) : new Date();
+  const s = Math.round((end - new Date(startedAt)) / 1000);
+  if (s < 60) return s + ' с';
+  return Math.floor(s / 60) + ' мин ' + (s % 60) + ' с';
+}
+
+function renderIncidents() {
+  const body = $('incidents-body');
+  const badge = $('active-incident-count');
+  const incidents = [...state.incidentMap.values()]
+    .sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
+
+  const activeCount = incidents.filter(i => !i.resolvedAt).length;
+  badge.hidden = activeCount === 0;
+  badge.textContent = activeCount;
+
+  if (!incidents.length) {
+    body.innerHTML = '<p class="muted incidents-empty">Инцидентов не зафиксировано</p>';
+    return;
+  }
+
+  const rows = incidents.map(i => {
+    const active = !i.resolvedAt;
+    const cfg = METRICS[i.metric];
+    const label = cfg ? cfg.label : i.metric;
+    const started = new Date(i.startedAt).toLocaleTimeString('ru-RU');
+    const ended = active
+      ? '<span class="badge-active">● активен</span>'
+      : new Date(i.resolvedAt).toLocaleTimeString('ru-RU');
+    const duration = formatIncidentDuration(i.startedAt, i.resolvedAt);
+    const peak = i.maxDeviationValue != null
+      ? i.maxDeviationValue.toFixed(cfg?.decimals ?? 1) + ' ' + (cfg?.unit ?? '')
+      : '—';
+    return `<tr class="${active ? 'incident-active-row' : ''}">
+      <td>${label}</td><td>${started}</td><td>${ended}</td>
+      <td>${duration}</td><td>${peak}</td>
+    </tr>`;
+  }).join('');
+
+  body.innerHTML = `<table class="incidents-table">
+    <thead><tr>
+      <th>Показатель</th><th>Начало</th><th>Конец</th><th>Длительность</th><th>Пиковое значение</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+async function loadIncidents(id) {
+  state.incidentMap = new Map();
+  try {
+    const incidents = await api(`/patients/${id}/incidents`);
+    for (const inc of incidents || []) state.incidentMap.set(inc.id, inc);
+  } catch (_) {}
+  renderIncidents();
+}
+
+function onIncidentEvent(incident) {
+  state.incidentMap.set(incident.id, incident);
+  renderIncidents();
+  renderPatientList(); // refresh sidebar badge
 }
 
 // --- patients ---
@@ -282,6 +394,16 @@ function renderPatientList() {
     badge.textContent = p.monitoringActive ? 'наблюдение' : 'пауза';
 
     li.append(name, badge);
+
+    if (p.id === state.selectedId) {
+      const activeCount = [...state.incidentMap.values()].filter(i => !i.resolvedAt).length;
+      if (activeCount > 0) {
+        const incBadge = document.createElement('span');
+        incBadge.className = 'incident-badge';
+        incBadge.textContent = activeCount;
+        li.appendChild(incBadge);
+      }
+    }
     li.onclick = () => selectPatient(p.id);
     ul.appendChild(li);
   }
@@ -291,6 +413,7 @@ async function selectPatient(id) {
   if (state.selectedId === id) return;
   state.selectedId = id;
   closeStream();
+  state.incidentMap = new Map();
 
   const p = state.patients.find(x => x.id === id);
   $('placeholder').hidden = true;
@@ -301,9 +424,8 @@ async function selectPatient(id) {
   buildCharts();
   loadStatistics();
 
-  // Pre-fill the buffers with stored history before going live, so charts
-  // show the latest measurements immediately on (re)opening a patient
-  await loadHistory(id);
+  // Load history and incidents in parallel before going live
+  await Promise.all([loadHistory(id), loadIncidents(id)]);
   if (state.selectedId !== id) return; // user switched patients while loading
 
   state.unsubscribe = subscribeStream(id, onMetricFrame, live => {
@@ -311,6 +433,8 @@ async function selectPatient(id) {
     el.textContent = live ? '● поток активен' : 'переподключение…';
     el.className = 'status' + (live ? ' live' : ' muted');
   });
+
+  state.incidentUnsubscribe = subscribeIncidentStream(id, onIncidentEvent);
 }
 
 // --- measurement history (last N stored points per metric) ---
@@ -335,6 +459,7 @@ async function loadHistory(id) {
     const last = buffer.last();
     if (last) updateValueLabel(key, cfg, last.v);
     drawChart($(`canvas-${key}`), cfg, buffer);
+    renderMeasurements(key, cfg);
   }
 }
 
@@ -392,6 +517,27 @@ function renderStatistics(stats) {
 
 // --- charts ---
 
+function renderMeasurements(key, cfg) {
+  const panel = $(`meas-${key}`);
+  if (!panel || panel.hidden) return;
+  const pts = [...(state.buffers[key]?.points || [])].reverse().slice(0, 30);
+  if (!pts.length) {
+    panel.innerHTML = '<p class="muted meas-empty">Нет данных</p>';
+    return;
+  }
+  const rows = pts.map(p => {
+    const d = new Date(p.t);
+    const time = d.toLocaleTimeString('ru-RU');
+    const critical = p.v < cfg.min || p.v > cfg.max;
+    return `<tr class="${critical ? 'critical-row' : ''}">
+      <td class="meas-time">${time}</td>
+      <td class="meas-val${critical ? ' critical' : ''}">${p.v.toFixed(cfg.decimals)}</td>
+      <td class="meas-unit">${cfg.unit}</td>
+    </tr>`;
+  }).join('');
+  panel.innerHTML = `<table class="meas-table"><tbody>${rows}</tbody></table>`;
+}
+
 function buildCharts() {
   state.buffers = {};
   const wrap = $('charts');
@@ -405,10 +551,23 @@ function buildCharts() {
     card.innerHTML = `
       <div class="chart-top">
         <h3>${cfg.label}<span class="range">норма ${cfg.min}–${cfg.max} ${cfg.unit}</span></h3>
-        <div class="value" id="value-${key}">—</div>
+        <div class="chart-top-right">
+          <div class="value" id="value-${key}">—</div>
+          <button class="ghost meas-toggle" id="meas-btn-${key}">Измерения ▼</button>
+        </div>
       </div>
-      <canvas id="canvas-${key}"></canvas>`;
+      <canvas id="canvas-${key}"></canvas>
+      <div id="meas-${key}" class="meas-panel" hidden></div>`;
     wrap.appendChild(card);
+
+    card.querySelector(`#meas-btn-${key}`).addEventListener('click', () => {
+      const panel = $(`meas-${key}`);
+      const btn = $(`meas-btn-${key}`);
+      panel.hidden = !panel.hidden;
+      btn.textContent = panel.hidden ? 'Измерения ▼' : 'Измерения ▲';
+      btn.classList.toggle('active', !panel.hidden);
+      if (!panel.hidden) renderMeasurements(key, cfg);
+    });
 
     drawChart($(`canvas-${key}`), cfg, state.buffers[key]);
   }
@@ -431,6 +590,7 @@ function onMetricFrame(senml) {
   buffer.push(t, senml.v);
   updateValueLabel(senml.n, cfg, senml.v);
   drawChart($(`canvas-${senml.n}`), cfg, buffer);
+  renderMeasurements(senml.n, cfg);
 }
 
 // ---------------------------------------------------------------------------
@@ -497,6 +657,10 @@ async function toggleMonitoring(action) {
 
 $('start-btn').addEventListener('click', () => toggleMonitoring('start'));
 $('stop-btn').addEventListener('click', () => toggleMonitoring('stop'));
+
+$('incidents-refresh').addEventListener('click', () => {
+  if (state.selectedId) loadIncidents(state.selectedId);
+});
 
 $('stats-refresh').addEventListener('click', loadStatistics);
 $('stats-interval').addEventListener('change', loadStatistics);

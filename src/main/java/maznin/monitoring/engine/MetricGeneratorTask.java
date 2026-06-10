@@ -1,5 +1,6 @@
 package maznin.monitoring.engine;
 
+import maznin.monitoring.api.IncidentStreamingService;
 import maznin.monitoring.patient.CriticalIncident;
 import maznin.monitoring.patient.CriticalIncidentRepository;
 import maznin.monitoring.patient.Measurement;
@@ -12,7 +13,6 @@ import org.slf4j.LoggerFactory;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class MetricGeneratorTask implements Runnable {
@@ -22,10 +22,11 @@ public class MetricGeneratorTask implements Runnable {
     private final Metric metric;
     private final MeasurementRepository measurementRepository;
     private final CriticalIncidentRepository criticalIncidentRepository;
+    private final IncidentStreamingService incidentStreamingService;
+    private final ValueGenerator valueGenerator;
     private final AtomicBoolean running = new AtomicBoolean(true);
 
     private double currentValue;
-    private final double theta = 0.1;
 
     // Active incident tracking (single-threaded — only this virtual thread accesses these)
     private CriticalIncident activeIncident = null;
@@ -33,10 +34,19 @@ public class MetricGeneratorTask implements Runnable {
     public MetricGeneratorTask(UUID patientId, Metric metric,
                                MeasurementRepository measurementRepository,
                                CriticalIncidentRepository criticalIncidentRepository) {
+        this(patientId, metric, measurementRepository, criticalIncidentRepository, null);
+    }
+
+    public MetricGeneratorTask(UUID patientId, Metric metric,
+                               MeasurementRepository measurementRepository,
+                               CriticalIncidentRepository criticalIncidentRepository,
+                               IncidentStreamingService incidentStreamingService) {
         this.patientId = patientId;
         this.metric = metric;
         this.measurementRepository = measurementRepository;
         this.criticalIncidentRepository = criticalIncidentRepository;
+        this.incidentStreamingService = incidentStreamingService;
+        this.valueGenerator = new OrnsteinUhlenbeckGenerator(0.1, metric.getMu(), metric.getSigma());
         this.currentValue = metric.getMu();
     }
 
@@ -51,11 +61,7 @@ public class MetricGeneratorTask implements Runnable {
 
         while (running.get()) {
             try {
-                // Ornstein-Uhlenbeck: x(t+1) = x(t) + Theta*(Mu - x(t))*dt + Sigma*sqrt(dt)*N(0,1)
-                double mu = metric.getMu();
-                double noise = ThreadLocalRandom.current().nextGaussian();
-                double deltaX = theta * (mu - currentValue) * dt + metric.getSigma() * Math.sqrt(dt) * noise;
-                currentValue += deltaX;
+                currentValue = valueGenerator.next(currentValue, dt);
 
                 OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
@@ -104,7 +110,12 @@ public class MetricGeneratorTask implements Runnable {
                 );
                 try {
                     activeIncident = criticalIncidentRepository.save(incident).block();
-                    if (activeIncident != null) activeIncident.markNotNew(); // next save() must UPDATE
+                    if (activeIncident != null) {
+                        activeIncident.markNotNew(); // next save() must UPDATE
+                        if (incidentStreamingService != null) {
+                            incidentStreamingService.publish(activeIncident);
+                        }
+                    }
                 } catch (Exception e) {
                     logger.error("Failed to save critical incident for patient {} metric {}", patientId, metric.getKey(), e);
                 }
@@ -121,10 +132,14 @@ public class MetricGeneratorTask implements Runnable {
 
     private void resolveIncident(OffsetDateTime resolvedAt) {
         activeIncident.setResolvedAt(resolvedAt);
-        criticalIncidentRepository.save(activeIncident)
+        if (incidentStreamingService != null) {
+            incidentStreamingService.publish(activeIncident);
+        }
+        final CriticalIncident toSave = activeIncident;
+        criticalIncidentRepository.save(toSave)
                 .subscribe(
                         saved -> {},
-                        e -> logger.error("Failed to resolve critical incident {}", activeIncident.getId(), e)
+                        e -> logger.error("Failed to resolve critical incident {}", toSave.getId(), e)
                 );
         activeIncident = null;
     }

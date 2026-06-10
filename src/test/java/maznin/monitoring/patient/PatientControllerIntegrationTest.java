@@ -130,9 +130,36 @@ class PatientControllerIntegrationTest {
         };
 
         measurementRepository = new MeasurementRepositoryStub();
+
+        maznin.monitoring.patient.CriticalIncidentRepository incidentRepository =
+                new maznin.monitoring.patient.CriticalIncidentRepository() {
+            @Override public <S extends maznin.monitoring.patient.CriticalIncident> reactor.core.publisher.Mono<S> save(S e) { return reactor.core.publisher.Mono.just(e); }
+            @Override public <S extends maznin.monitoring.patient.CriticalIncident> reactor.core.publisher.Flux<S> saveAll(Iterable<S> e) { return reactor.core.publisher.Flux.empty(); }
+            @Override public <S extends maznin.monitoring.patient.CriticalIncident> reactor.core.publisher.Flux<S> saveAll(org.reactivestreams.Publisher<S> e) { return reactor.core.publisher.Flux.empty(); }
+            @Override public reactor.core.publisher.Mono<maznin.monitoring.patient.CriticalIncident> findById(UUID id) { return reactor.core.publisher.Mono.empty(); }
+            @Override public reactor.core.publisher.Mono<maznin.monitoring.patient.CriticalIncident> findById(org.reactivestreams.Publisher<UUID> id) { return reactor.core.publisher.Mono.empty(); }
+            @Override public reactor.core.publisher.Mono<Boolean> existsById(UUID id) { return reactor.core.publisher.Mono.just(false); }
+            @Override public reactor.core.publisher.Mono<Boolean> existsById(org.reactivestreams.Publisher<UUID> id) { return reactor.core.publisher.Mono.just(false); }
+            @Override public reactor.core.publisher.Flux<maznin.monitoring.patient.CriticalIncident> findAll() { return reactor.core.publisher.Flux.empty(); }
+            @Override public reactor.core.publisher.Flux<maznin.monitoring.patient.CriticalIncident> findAllById(Iterable<UUID> ids) { return reactor.core.publisher.Flux.empty(); }
+            @Override public reactor.core.publisher.Flux<maznin.monitoring.patient.CriticalIncident> findAllById(org.reactivestreams.Publisher<UUID> ids) { return reactor.core.publisher.Flux.empty(); }
+            @Override public reactor.core.publisher.Mono<Long> count() { return reactor.core.publisher.Mono.just(0L); }
+            @Override public reactor.core.publisher.Mono<Void> deleteById(UUID id) { return reactor.core.publisher.Mono.empty(); }
+            @Override public reactor.core.publisher.Mono<Void> deleteById(org.reactivestreams.Publisher<UUID> id) { return reactor.core.publisher.Mono.empty(); }
+            @Override public reactor.core.publisher.Mono<Void> delete(maznin.monitoring.patient.CriticalIncident e) { return reactor.core.publisher.Mono.empty(); }
+            @Override public reactor.core.publisher.Mono<Void> deleteAllById(Iterable<? extends UUID> ids) { return reactor.core.publisher.Mono.empty(); }
+            @Override public reactor.core.publisher.Mono<Void> deleteAll(Iterable<? extends maznin.monitoring.patient.CriticalIncident> e) { return reactor.core.publisher.Mono.empty(); }
+            @Override public reactor.core.publisher.Mono<Void> deleteAll(org.reactivestreams.Publisher<? extends maznin.monitoring.patient.CriticalIncident> e) { return reactor.core.publisher.Mono.empty(); }
+            @Override public reactor.core.publisher.Mono<Void> deleteAll() { return reactor.core.publisher.Mono.empty(); }
+            @Override public reactor.core.publisher.Flux<maznin.monitoring.patient.CriticalIncident> findTop20ByPatientIdOrderByStartedAtDesc(UUID patientId) { return reactor.core.publisher.Flux.empty(); }
+        };
+
+        maznin.monitoring.api.IncidentStreamingService incidentStreamingService =
+                new maznin.monitoring.api.IncidentStreamingService();
+
         PatientService patientService = new PatientService(patientRepository, metricGenerationEngine);
         PatientController patientController = new PatientController(patientService, streamingService, statisticsService,
-                measurementRepository);
+                measurementRepository, incidentRepository, incidentStreamingService);
         
         webTestClient = WebTestClient.bindToController(patientController).build();
     }
