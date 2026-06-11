@@ -1,12 +1,9 @@
 package maznin.monitoring.engine;
 
-import maznin.monitoring.api.IncidentStreamingService;
-import maznin.monitoring.patient.CriticalIncidentRepository;
-import maznin.monitoring.patient.MeasurementRepository;
+import maznin.monitoring.ingest.MeasurementIngestService;
 import maznin.monitoring.patient.Metric;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
@@ -31,35 +28,16 @@ import java.util.concurrent.Executors;
 public class MetricGenerationEngine {
     private static final Logger logger = LoggerFactory.getLogger(MetricGenerationEngine.class);
 
-    private final MeasurementRepository measurementRepository;
-    private final CriticalIncidentRepository criticalIncidentRepository;
-    private final IncidentStreamingService incidentStreamingService;
+    private final MeasurementIngestService ingestService;
     private final ExecutorService executorService;
     private final Map<String, MetricGeneratorTask> tasks = new ConcurrentHashMap<>();
 
     /**
-     * Конструктор без издателя инцидентов — события инцидентов не публикуются
-     * (используется в тестах).
+     * @param ingestService точка приёма измерений, передаётся задачам —
+     *        единственная связь эмулятора с системой мониторинга
      */
-    public MetricGenerationEngine(MeasurementRepository measurementRepository,
-                                  CriticalIncidentRepository criticalIncidentRepository) {
-        this(measurementRepository, criticalIncidentRepository, null);
-    }
-
-    /**
-     * Основной конструктор (используется Spring).
-     *
-     * @param measurementRepository репозиторий измерений, передаётся задачам
-     * @param criticalIncidentRepository репозиторий инцидентов, передаётся задачам
-     * @param incidentStreamingService издатель SSE-событий инцидентов
-     */
-    @Autowired
-    public MetricGenerationEngine(MeasurementRepository measurementRepository,
-                                  CriticalIncidentRepository criticalIncidentRepository,
-                                  IncidentStreamingService incidentStreamingService) {
-        this.measurementRepository = measurementRepository;
-        this.criticalIncidentRepository = criticalIncidentRepository;
-        this.incidentStreamingService = incidentStreamingService;
+    public MetricGenerationEngine(MeasurementIngestService ingestService) {
+        this.ingestService = ingestService;
         this.executorService = Executors.newVirtualThreadPerTaskExecutor();
     }
 
@@ -74,8 +52,7 @@ public class MetricGenerationEngine {
         for (Metric metric : Metric.values()) {
             String taskKey = getTaskKey(patientId, metric);
             if (!tasks.containsKey(taskKey)) {
-                MetricGeneratorTask task = new MetricGeneratorTask(
-                        patientId, metric, measurementRepository, criticalIncidentRepository, incidentStreamingService);
+                MetricGeneratorTask task = new MetricGeneratorTask(patientId, metric, ingestService);
                 tasks.put(taskKey, task);
                 executorService.submit(task);
                 logger.info("Monitoring started for patient {} metric {}", patientId, metric.getKey());
@@ -85,8 +62,9 @@ public class MetricGenerationEngine {
 
     /**
      * Останавливает все задачи генерации пациента и удаляет их из реестра.
-     * Каждая задача завершает текущий тик и закрывает открытый критический
-     * инцидент. Отсутствие задач — не ошибка.
+     * Каждая задача завершает текущий тик и сигнализирует {@code streamClosed} —
+     * открытые критические эпизоды будут закрыты детектором. Отсутствие
+     * задач — не ошибка.
      *
      * @param patientId идентификатор пациента
      */

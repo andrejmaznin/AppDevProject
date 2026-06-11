@@ -24,8 +24,10 @@
  *   <li>{@link maznin.monitoring.api} — потоковая доставка (SSE), DTO внешних
  *       форматов (SenML), статистическая агрегация;</li>
  *   <li>{@link maznin.monitoring.auth} — выпуск JWT-токенов по учётным данным;</li>
- *   <li>{@link maznin.monitoring.engine} — генерация телеметрии (процесс
- *       Орнштейна–Уленбека) и отслеживание критических инцидентов;</li>
+ *   <li>{@link maznin.monitoring.engine} — эмулятор датчиков: генерация
+ *       телеметрии (процесс Орнштейна–Уленбека);</li>
+ *   <li>{@link maznin.monitoring.ingest} — точка приёма измерений в систему
+ *       и детекция критических инцидентов (шов для замены источника данных);</li>
  *   <li>{@link maznin.monitoring.error} — преобразование исключений в ответы
  *       RFC 7807 Problem Details;</li>
  *   <li>{@link maznin.monitoring.patient} — доменная модель: пациенты,

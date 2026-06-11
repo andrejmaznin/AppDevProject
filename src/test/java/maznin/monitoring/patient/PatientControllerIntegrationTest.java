@@ -93,7 +93,7 @@ class PatientControllerIntegrationTest {
         final Set<UUID> stoppedMonitoring = new HashSet<>();
 
         public MetricGenerationEngineStub() {
-            super(null, null); // Pass null repositories, we won't use them
+            super(null); // No ingest service needed, we won't run tasks
         }
 
         @Override

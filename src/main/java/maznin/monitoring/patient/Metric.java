@@ -73,4 +73,19 @@ public enum Metric {
     public long getTickRateMs() {
         return tickRateMs;
     }
+
+    /**
+     * Метрика по строковому ключу (значению колонки {@code metric} в БД).
+     *
+     * @param key ключ, например {@code heart_rate}
+     * @return метрика или {@code null}, если ключ неизвестен
+     */
+    public static Metric fromKey(String key) {
+        for (Metric metric : values()) {
+            if (metric.key.equals(key)) {
+                return metric;
+            }
+        }
+        return null;
+    }
 }

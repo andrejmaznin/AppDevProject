@@ -1,5 +1,8 @@
 package maznin.monitoring.engine;
 
+import maznin.monitoring.api.IncidentStreamingService;
+import maznin.monitoring.ingest.CriticalIncidentDetector;
+import maznin.monitoring.ingest.MeasurementIngestService;
 import maznin.monitoring.patient.CriticalIncident;
 import maznin.monitoring.patient.CriticalIncidentRepository;
 import maznin.monitoring.patient.Measurement;
@@ -14,15 +17,17 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MetricGeneratorTaskTest {
 
     private static class MeasurementRepositoryStub implements MeasurementRepository {
-        final List<Measurement> savedMeasurements = new ArrayList<>();
+        final List<Measurement> savedMeasurements = new CopyOnWriteArrayList<>();
         private final CountDownLatch latch;
 
         MeasurementRepositoryStub(CountDownLatch latch) {
@@ -56,8 +61,14 @@ class MetricGeneratorTaskTest {
         @Override public Mono<Void> deleteAll() { return null; }
     }
 
-    private static class CriticalIncidentRepositoryStub implements CriticalIncidentRepository {
-        @Override public <S extends CriticalIncident> Mono<S> save(S entity) { return Mono.just(entity); }
+    static class CriticalIncidentRepositoryStub implements CriticalIncidentRepository {
+        final List<CriticalIncident> saves = new ArrayList<>();
+
+        @Override public <S extends CriticalIncident> Mono<S> save(S entity) {
+            saves.add(entity);
+            return Mono.just(entity);
+        }
+        @Override public Flux<CriticalIncident> findTop20ByPatientIdOrderByStartedAtDesc(UUID patientId) { return Flux.empty(); }
         @Override public <S extends CriticalIncident> Flux<S> saveAll(Iterable<S> entities) { return Flux.empty(); }
         @Override public <S extends CriticalIncident> Flux<S> saveAll(Publisher<S> entityStream) { return Flux.empty(); }
         @Override public Mono<CriticalIncident> findById(UUID uuid) { return Mono.empty(); }
@@ -75,7 +86,12 @@ class MetricGeneratorTaskTest {
         @Override public Mono<Void> deleteAll(Iterable<? extends CriticalIncident> entities) { return Mono.empty(); }
         @Override public Mono<Void> deleteAll(Publisher<? extends CriticalIncident> entityStream) { return Mono.empty(); }
         @Override public Mono<Void> deleteAll() { return Mono.empty(); }
-        @Override public Flux<CriticalIncident> findTop20ByPatientIdOrderByStartedAtDesc(java.util.UUID patientId) { return Flux.empty(); }
+    }
+
+    private static MeasurementIngestService ingestService(MeasurementRepository measurementRepository,
+                                                          CriticalIncidentRepository incidentRepository) {
+        return new MeasurementIngestService(measurementRepository,
+                new CriticalIncidentDetector(incidentRepository, new IncidentStreamingService()));
     }
 
     @Test
@@ -86,7 +102,7 @@ class MetricGeneratorTaskTest {
         MeasurementRepositoryStub stub = new MeasurementRepositoryStub(latch);
 
         MetricGeneratorTask task = new MetricGeneratorTask(
-                patientId, metric, stub, new CriticalIncidentRepositoryStub());
+                patientId, metric, ingestService(stub, new CriticalIncidentRepositoryStub()));
         Thread thread = Thread.ofVirtual().start(task);
 
         boolean completed = latch.await(5, TimeUnit.SECONDS);
@@ -101,5 +117,29 @@ class MetricGeneratorTaskTest {
             assertTrue(m.getValue() > metric.getRangeMin() - 10, "Value too low: " + m.getValue());
             assertTrue(m.getValue() < metric.getRangeMax() + 10, "Value too high: " + m.getValue());
         }
+    }
+
+    @Test
+    void stopClosesOpenIncidentThroughIngestChain() throws InterruptedException {
+        // Сквозная проверка: задача → ingest → детектор → streamClosed при стопе
+        UUID patientId = UUID.randomUUID();
+        CountDownLatch oneTick = new CountDownLatch(1);
+        MeasurementRepositoryStub measurements = new MeasurementRepositoryStub(oneTick);
+        CriticalIncidentRepositoryStub incidents = new CriticalIncidentRepositoryStub();
+
+        // Значение всегда вне нормы (норма пульса 60–90)
+        MetricGeneratorTask task = new MetricGeneratorTask(
+                patientId, Metric.HEART_RATE, ingestService(measurements, incidents),
+                (current, dt) -> 110.0);
+        Thread thread = Thread.ofVirtual().start(task);
+
+        assertTrue(oneTick.await(5, TimeUnit.SECONDS));
+        task.stop();
+        thread.join(3000);
+        assertFalse(thread.isAlive(), "Task thread must terminate after stop()");
+
+        assertTrue(incidents.saves.size() >= 2, "INSERT on open + UPDATE on stream close");
+        CriticalIncident last = incidents.saves.get(incidents.saves.size() - 1);
+        assertNotNull(last.getResolvedAt(), "stop() must close the open incident via streamClosed");
     }
 }
