@@ -23,6 +23,7 @@ class PatientControllerIntegrationTest {
     private PatientRepository patientRepository;
     private MetricGenerationEngineStub metricGenerationEngine;
     private MeasurementRepositoryStub measurementRepository;
+    private final java.util.List<CriticalIncident> incidents = new java.util.ArrayList<>();
 
     private static class PatientRepositoryStub implements PatientRepository {
         private final Map<UUID, Patient> patients = new HashMap<>();
@@ -151,7 +152,10 @@ class PatientControllerIntegrationTest {
             @Override public reactor.core.publisher.Mono<Void> deleteAll(Iterable<? extends maznin.monitoring.patient.CriticalIncident> e) { return reactor.core.publisher.Mono.empty(); }
             @Override public reactor.core.publisher.Mono<Void> deleteAll(org.reactivestreams.Publisher<? extends maznin.monitoring.patient.CriticalIncident> e) { return reactor.core.publisher.Mono.empty(); }
             @Override public reactor.core.publisher.Mono<Void> deleteAll() { return reactor.core.publisher.Mono.empty(); }
-            @Override public reactor.core.publisher.Flux<maznin.monitoring.patient.CriticalIncident> findTop20ByPatientIdOrderByStartedAtDesc(UUID patientId) { return reactor.core.publisher.Flux.empty(); }
+            @Override public reactor.core.publisher.Flux<maznin.monitoring.patient.CriticalIncident> findTop20ByPatientIdOrderByStartedAtDesc(UUID patientId) {
+                return reactor.core.publisher.Flux.fromIterable(incidents.stream()
+                        .filter(i -> i.getPatientId().equals(patientId)).toList());
+            }
         };
 
         maznin.monitoring.api.IncidentStreamingService incidentStreamingService =
@@ -225,6 +229,49 @@ class PatientControllerIntegrationTest {
     void getMeasurements_UnknownPatient_ReturnsNotFound() {
         webTestClient.get()
                 .uri("/api/v1/patients/{id}/measurements", UUID.randomUUID())
+                .exchange()
+                .expectStatus().isNotFound();
+    }
+
+    @Test
+    void startMonitoring_UnknownPatient_ReturnsNotFound() {
+        webTestClient.post()
+                .uri("/api/v1/patients/{id}/monitoring/start", UUID.randomUUID())
+                .exchange()
+                .expectStatus().isNotFound();
+
+        assertTrue(metricGenerationEngine.startedMonitoring.isEmpty());
+    }
+
+    @Test
+    void getIncidents_ExistingPatient_ReturnsIncidentsOfThatPatientOnly() {
+        UUID patientId = UUID.randomUUID();
+        ((PatientRepositoryStub) patientRepository).patients
+                .put(patientId, new Patient(patientId, "Jane", "Doe", true));
+
+        java.time.OffsetDateTime startedAt = java.time.OffsetDateTime.parse("2026-06-10T10:00:00Z");
+        CriticalIncident active = new CriticalIncident(
+                UUID.randomUUID(), patientId, "heart_rate", startedAt, 120.0);
+        incidents.add(active);
+        incidents.add(new CriticalIncident(
+                UUID.randomUUID(), UUID.randomUUID(), "cvp", startedAt, 9.5)); // другой пациент
+
+        webTestClient.get()
+                .uri("/api/v1/patients/{id}/incidents", patientId)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.length()").isEqualTo(1)
+                .jsonPath("$[0].id").isEqualTo(active.getId().toString())
+                .jsonPath("$[0].metric").isEqualTo("heart_rate")
+                .jsonPath("$[0].maxDeviationValue").isEqualTo(120.0)
+                .jsonPath("$[0].resolvedAt").doesNotExist();
+    }
+
+    @Test
+    void getIncidents_UnknownPatient_ReturnsNotFound() {
+        webTestClient.get()
+                .uri("/api/v1/patients/{id}/incidents", UUID.randomUUID())
                 .exchange()
                 .expectStatus().isNotFound();
     }

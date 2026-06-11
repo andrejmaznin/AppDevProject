@@ -41,12 +41,22 @@ public class MetricGeneratorTask implements Runnable {
                                MeasurementRepository measurementRepository,
                                CriticalIncidentRepository criticalIncidentRepository,
                                IncidentStreamingService incidentStreamingService) {
+        this(patientId, metric, measurementRepository, criticalIncidentRepository, incidentStreamingService,
+                new OrnsteinUhlenbeckGenerator(0.1, metric.getMu(), metric.getSigma()));
+    }
+
+    // Стратегия генерации внедряется явно — в тестах подменяется детерминированной
+    public MetricGeneratorTask(UUID patientId, Metric metric,
+                               MeasurementRepository measurementRepository,
+                               CriticalIncidentRepository criticalIncidentRepository,
+                               IncidentStreamingService incidentStreamingService,
+                               ValueGenerator valueGenerator) {
         this.patientId = patientId;
         this.metric = metric;
         this.measurementRepository = measurementRepository;
         this.criticalIncidentRepository = criticalIncidentRepository;
         this.incidentStreamingService = incidentStreamingService;
-        this.valueGenerator = new OrnsteinUhlenbeckGenerator(0.1, metric.getMu(), metric.getSigma());
+        this.valueGenerator = valueGenerator;
         this.currentValue = metric.getMu();
     }
 
