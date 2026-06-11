@@ -1,0 +1,13 @@
+@startuml c4-context
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+title Диаграмма контекста (C4, уровень 1) — Patient Monitoring Dashboard
+
+Person(clinician, "Медицинский работник", "Регистрирует пациентов, запускает и останавливает мониторинг, наблюдает показатели в реальном времени, анализирует статистику и критические инциденты")
+
+System(pmd, "Patient Monitoring Dashboard", "Система мониторинга витальных показателей пациентов: эмуляция датчиков (пульс, ЦВД, температура), потоковая доставка измерений, статистика, фиксация критических инцидентов")
+
+Rel(clinician, pmd, "Работает через веб-интерфейс", "HTTPS, браузер")
+
+SHOW_LEGEND()
+@enduml

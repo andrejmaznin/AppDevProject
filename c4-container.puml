@@ -1,0 +1,20 @@
+@startuml c4-container
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+title Диаграмма контейнеров (C4, уровень 2) — Patient Monitoring Dashboard
+
+Person(clinician, "Медицинский работник", "Наблюдает показатели пациентов в реальном времени")
+
+System_Boundary(pmd, "Patient Monitoring Dashboard") {
+    Container(spa, "Frontend SPA", "nginx, HTML/CSS/JavaScript (Canvas)", "Панель наблюдения: вход по JWT, список пациентов, графики реального времени, таблицы измерений, статистика, критические инциденты. nginx также проксирует /api на бэкенд")
+    Container(backend, "Backend", "Java 21, Spring Boot 3 WebFlux", "REST API и SSE-потоки; генерация метрик на виртуальных потоках (процесс Орнштейна–Уленбека); JWT-аутентификация; статистическая агрегация")
+    ContainerDb(db, "База данных", "PostgreSQL", "patients, measurements (BRIN-индекс по measured_at), critical_incidents, users; триггер pg_notify для потоковой доставки")
+}
+
+Rel(clinician, spa, "Использует", "HTTPS")
+Rel(spa, backend, "REST (JSON, RFC 7807) и SSE (SenML, RFC 8428), JWT Bearer (RFC 6750)", "HTTP через nginx-прокси")
+Rel(backend, db, "Чтение и запись", "R2DBC (реактивный драйвер)")
+Rel_Back(backend, db, "Уведомления о новых измерениях", "LISTEN/NOTIFY")
+
+SHOW_LEGEND()
+@enduml
