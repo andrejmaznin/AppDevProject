@@ -8,6 +8,17 @@ import org.springframework.data.relational.core.mapping.Table;
 
 import java.util.UUID;
 
+/**
+ * Пациент — субъект наблюдения.
+ *
+ * <p>Поле {@code isMonitoringActive} — персистентный источник истины о том,
+ * должен ли идти мониторинг: по нему восстанавливаются задачи генерации
+ * после перезапуска приложения.</p>
+ *
+ * <p>Реализует {@code Persistable}: идентификатор UUIDv7 присваивается в
+ * коде, поэтому новизна записи определяется {@code @Transient}-флагом,
+ * а не пустотой {@code @Id} (см. документацию пакета).</p>
+ */
 @Table("patients")
 public class Patient implements Persistable<UUID> {
     @Id
@@ -21,8 +32,13 @@ public class Patient implements Persistable<UUID> {
     @Transient
     private boolean newEntity = false;
 
+    /** Для маппинга строк БД (объект считается уже существующим). */
     public Patient() {}
 
+    /**
+     * Создаёт нового пациента; объект помечается новым — первый
+     * {@code save()} выполнит INSERT.
+     */
     public Patient(UUID id, String firstName, String lastName, boolean isMonitoringActive) {
         this.id = id;
         this.firstName = firstName;
@@ -31,6 +47,10 @@ public class Patient implements Persistable<UUID> {
         this.newEntity = true;
     }
 
+    /**
+     * Признак «ещё не сохранён» для Spring Data R2DBC (INSERT vs UPDATE).
+     * Скрыт из JSON — служебное поле, а не атрибут предметной области.
+     */
     @Override
     @JsonIgnore
     public boolean isNew() {

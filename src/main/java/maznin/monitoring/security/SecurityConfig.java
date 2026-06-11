@@ -18,6 +18,16 @@ import reactor.core.publisher.Mono;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
+/**
+ * Сборка цепочки фильтров WebFlux Security.
+ *
+ * <p>Правила: {@code /api/v1/auth/**} и Swagger — публичные, всё остальное
+ * требует аутентификации. CSRF, form-login и HTTP Basic отключены —
+ * API stateless, единственная схема — Bearer JWT. Ошибки 401/403 отдаются
+ * в формате RFC 7807 ({@code application/problem+json}) — формируются здесь,
+ * потому что возникают до контроллеров и {@code @RestControllerAdvice}
+ * их не видит.</p>
+ */
 @Configuration
 @EnableWebFluxSecurity
 public class SecurityConfig {
@@ -30,6 +40,11 @@ public class SecurityConfig {
         this.securityContextRepository = securityContextRepository;
     }
 
+    /**
+     * Цепочка фильтров: правила доступа, JWT-аутентификация через
+     * {@link AuthenticationManager} и {@link SecurityContextRepository},
+     * обработчики 401/403 с телом RFC 7807.
+     */
     @Bean
     public SecurityWebFilterChain securityWebFilterChain(ServerHttpSecurity http) {
         return http
@@ -52,6 +67,11 @@ public class SecurityConfig {
                 .build();
     }
 
+    /**
+     * Пишет в ответ JSON-тело RFC 7807 Problem Details с заданным статусом —
+     * используется обработчиками 401 (authenticationEntryPoint) и 403
+     * (accessDeniedHandler).
+     */
     private Mono<Void> writeProblemDetail(org.springframework.web.server.ServerWebExchange exchange,
                                           HttpStatus status, String detail) {
         exchange.getResponse().setStatusCode(status);
@@ -66,6 +86,10 @@ public class SecurityConfig {
         return exchange.getResponse().writeWith(Mono.just(buffer));
     }
 
+    /**
+     * CORS для SPA: разрешены источники локальной разработки и
+     * nginx-прокси, заголовки {@code Content-Type} и {@code Authorization}.
+     */
     @Bean
     public CorsWebFilter corsWebFilter() {
         CorsConfiguration corsConfig = new CorsConfiguration();
@@ -82,6 +106,7 @@ public class SecurityConfig {
         return new CorsWebFilter(source);
     }
 
+    /** BCrypt — формат хэшей в колонке {@code users.password_hash}. */
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();

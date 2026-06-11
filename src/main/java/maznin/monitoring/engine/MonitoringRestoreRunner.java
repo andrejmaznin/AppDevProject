@@ -7,6 +7,14 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
+/**
+ * Восстановление мониторинга после перезапуска приложения.
+ *
+ * <p>Флаг {@code monitoringActive} хранится в БД, но сами задачи генерации
+ * живут только в памяти. Этот раннер при старте контекста находит всех
+ * пациентов с активным флагом и заново запускает для них генерацию —
+ * перезапуск контейнера не прерывает наблюдение.</p>
+ */
 @Component
 public class MonitoringRestoreRunner implements ApplicationRunner {
     private static final Logger logger = LoggerFactory.getLogger(MonitoringRestoreRunner.class);
@@ -19,6 +27,13 @@ public class MonitoringRestoreRunner implements ApplicationRunner {
         this.metricGenerationEngine = metricGenerationEngine;
     }
 
+    /**
+     * Выполняется один раз после полной инициализации контекста Spring.
+     * Подписка неблокирующая: старт приложения не ждёт обхода пациентов;
+     * ошибка чтения БД логируется, но не валит приложение.
+     *
+     * @param args аргументы запуска (не используются)
+     */
     @Override
     public void run(ApplicationArguments args) {
         patientRepository.findAll()

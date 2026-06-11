@@ -9,6 +9,17 @@ import org.springframework.data.relational.core.mapping.Table;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
+/**
+ * Одно измерение витального показателя: «пациент, метрика, значение, момент».
+ *
+ * <p>Самая горячая таблица системы — записи добавляются каждым тиком каждой
+ * задачи генерации и никогда не изменяются (append-only). Диапазонные
+ * выборки по {@code measuredAt} ускорены BRIN-индексом; INSERT дополнительно
+ * срабатывает как событие для SSE-потока через триггер {@code pg_notify}.</p>
+ *
+ * <p>Метрика хранится строковым ключом {@link Metric#getKey()}, а не Java-enum:
+ * это значение колонки с CHECK-ограничением в БД.</p>
+ */
 @Table("measurements")
 public class Measurement implements Persistable<UUID> {
     @Id
@@ -22,8 +33,17 @@ public class Measurement implements Persistable<UUID> {
     @Transient
     private boolean newEntity = false;
 
+    /** Для маппинга строк БД и разбора payload-а pg_notify. */
     public Measurement() {}
 
+    /**
+     * Создаёт новое измерение; объект помечается новым — {@code save()}
+     * выполнит INSERT.
+     *
+     * @param id UUIDv7 (время-упорядоченный)
+     * @param metric строковый ключ метрики ({@link Metric#getKey()})
+     * @param measuredAt момент измерения в UTC
+     */
     public Measurement(UUID id, UUID patientId, String metric, Double value, OffsetDateTime measuredAt) {
         this.id = id;
         this.patientId = patientId;

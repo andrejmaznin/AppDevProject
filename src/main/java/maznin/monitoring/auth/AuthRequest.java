@@ -1,5 +1,9 @@
 package maznin.monitoring.auth;
 
+/**
+ * DTO запроса аутентификации: логин и пароль (пароль в открытом виде —
+ * защита транспортом, HTTPS).
+ */
 public class AuthRequest {
     private String username;
     private String password;

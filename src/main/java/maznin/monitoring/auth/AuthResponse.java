@@ -1,5 +1,9 @@
 package maznin.monitoring.auth;
 
+/**
+ * DTO ответа аутентификации: подписанный JWT для заголовка
+ * {@code Authorization: Bearer <token>} (RFC 6750).
+ */
 public class AuthResponse {
     private String token;
 

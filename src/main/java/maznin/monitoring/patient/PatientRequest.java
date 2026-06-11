@@ -1,5 +1,10 @@
 package maznin.monitoring.patient;
 
+/**
+ * DTO запроса регистрации пациента: имя и фамилия.
+ * Идентификатор и статус мониторинга клиентом не задаются —
+ * их присваивает сервер.
+ */
 public class PatientRequest {
     private String firstName;
     private String lastName;

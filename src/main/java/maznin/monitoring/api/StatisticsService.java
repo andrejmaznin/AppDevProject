@@ -10,8 +10,17 @@ import java.time.OffsetDateTime;
 import java.util.UUID;
 
 /**
- * Aggregates measurement statistics in PostgreSQL (mean, variance, quartiles).
- * The time-range scan over measured_at is accelerated by the BRIN index.
+ * Расчёт статистических характеристик измерений средствами PostgreSQL.
+ *
+ * <p>Вся агрегация выполняется одним SQL-запросом на стороне БД: среднее
+ * ({@code avg}), выборочная дисперсия ({@code var_samp}), квартили
+ * ({@code percentile_cont(0.25/0.5/0.75) WITHIN GROUP}), минимум, максимум
+ * и количество — с группировкой по метрике. В приложение передаются только
+ * готовые агрегаты, а не сырые точки.</p>
+ *
+ * <p>Используется {@code DatabaseClient}, а не репозиторий: оконно-агрегатный
+ * SQL с {@code WITHIN GROUP} не выражается средствами Spring Data.
+ * Диапазонный скан по {@code measured_at} ускорен BRIN-индексом.</p>
  */
 @Service
 public class StatisticsService {
@@ -40,6 +49,17 @@ public class StatisticsService {
         this.databaseClient = databaseClient;
     }
 
+    /**
+     * Статистика по каждой метрике пациента на полуинтервале
+     * {@code [from, to)}. Метрики без измерений на интервале в результат
+     * не попадают; дисперсия {@code null} при единственном измерении
+     * (поведение {@code var_samp}).
+     *
+     * @param patientId идентификатор пациента
+     * @param from начало интервала (включается)
+     * @param to конец интервала (не включается)
+     * @return по одному элементу на метрику, отсортировано по ключу метрики
+     */
     public Flux<MetricStatistics> getStatistics(UUID patientId, OffsetDateTime from, OffsetDateTime to) {
         return databaseClient.sql(STATS_SQL)
                 .bind("patientId", patientId)
@@ -63,10 +83,12 @@ public class StatisticsService {
                 .all();
     }
 
+    /** {@code NUMERIC}-агрегаты приходят как {@code BigDecimal}; null-безопасно. */
     private static Double toDouble(BigDecimal value) {
         return value == null ? null : value.doubleValue();
     }
 
+    /** Единица измерения по ключу метрики; пустая строка для неизвестного ключа. */
     private static String unitOf(String metricKey) {
         for (Metric m : Metric.values()) {
             if (m.getKey().equals(metricKey)) return m.getUnit();

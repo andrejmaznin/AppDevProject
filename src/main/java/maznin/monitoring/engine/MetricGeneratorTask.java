@@ -15,6 +15,23 @@ import java.time.ZoneOffset;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+/**
+ * Команда генерации телеметрии одной метрики одного пациента.
+ *
+ * <p>Выполняется на выделенном виртуальном потоке. На каждом тике
+ * (период {@link Metric#getTickRateMs()}):</p>
+ * <ol>
+ *   <li>генерирует следующее значение через стратегию {@link ValueGenerator};</li>
+ *   <li>сохраняет {@link Measurement} в БД (асинхронно, fire-and-forget —
+ *       SSE-доставка произойдёт через триггер PostgreSQL);</li>
+ *   <li>сверяет значение с нормальным диапазоном метрики и ведёт конечный
+ *       автомат критического инцидента (см. {@link #trackCriticalIncident}).</li>
+ * </ol>
+ *
+ * <p><b>Потокобезопасность:</b> всё мутабельное состояние ({@code currentValue},
+ * {@code activeIncident}) принадлежит исключительно потоку задачи; извне
+ * допустим только вызов {@link #stop()} через атомарный флаг.</p>
+ */
 public class MetricGeneratorTask implements Runnable {
     private static final Logger logger = LoggerFactory.getLogger(MetricGeneratorTask.class);
 
@@ -31,12 +48,28 @@ public class MetricGeneratorTask implements Runnable {
     // Active incident tracking (single-threaded — only this virtual thread accesses these)
     private CriticalIncident activeIncident = null;
 
+    /**
+     * Упрощённый конструктор без публикации событий инцидентов.
+     *
+     * @param patientId пациент, для которого генерируется метрика
+     * @param metric генерируемая метрика (задаёт μ, σ, норму и период тика)
+     * @param measurementRepository репозиторий для сохранения измерений
+     * @param criticalIncidentRepository репозиторий инцидентов; {@code null}
+     *        полностью отключает отслеживание инцидентов
+     */
     public MetricGeneratorTask(UUID patientId, Metric metric,
                                MeasurementRepository measurementRepository,
                                CriticalIncidentRepository criticalIncidentRepository) {
         this(patientId, metric, measurementRepository, criticalIncidentRepository, null);
     }
 
+    /**
+     * Основной конструктор: стратегия — процесс Орнштейна–Уленбека
+     * с параметрами метрики (Θ = 0.1, μ и σ из {@link Metric}).
+     *
+     * @param incidentStreamingService издатель событий инцидентов для
+     *        SSE-подписчиков; {@code null} — события не публикуются
+     */
     public MetricGeneratorTask(UUID patientId, Metric metric,
                                MeasurementRepository measurementRepository,
                                CriticalIncidentRepository criticalIncidentRepository,
@@ -45,7 +78,12 @@ public class MetricGeneratorTask implements Runnable {
                 new OrnsteinUhlenbeckGenerator(0.1, metric.getMu(), metric.getSigma()));
     }
 
-    // Стратегия генерации внедряется явно — в тестах подменяется детерминированной
+    /**
+     * Полный конструктор с явной стратегией генерации — в тестах подменяется
+     * детерминированной последовательностью значений.
+     *
+     * @param valueGenerator стратегия вычисления следующего значения метрики
+     */
     public MetricGeneratorTask(UUID patientId, Metric metric,
                                MeasurementRepository measurementRepository,
                                CriticalIncidentRepository criticalIncidentRepository,
@@ -60,10 +98,21 @@ public class MetricGeneratorTask implements Runnable {
         this.currentValue = metric.getMu();
     }
 
+    /**
+     * Запрашивает останов задачи. Цикл завершится после текущего тика;
+     * открытый инцидент при этом будет закрыт (см. конец {@link #run()}).
+     * Безопасно вызывается из любого потока.
+     */
     public void stop() {
         running.set(false);
     }
 
+    /**
+     * Основной цикл генерации: значение → сохранение → проверка границ → сон.
+     * Ошибки отдельного тика логируются и не прерывают цикл; прерывание потока
+     * ({@code InterruptedException}) завершает задачу. На выходе закрывает
+     * незакрытый инцидент, чтобы в БД не оставалось «вечно активных» записей.
+     */
     @Override
     public void run() {
         logger.info("Starting metric generation for patient {} metric {}", patientId, metric.getKey());
@@ -104,6 +153,22 @@ public class MetricGeneratorTask implements Runnable {
         logger.info("Stopped metric generation for patient {} metric {}", patientId, metric.getKey());
     }
 
+    /**
+     * Конечный автомат критического инцидента.
+     *
+     * <p>Переходы по текущему значению метрики:</p>
+     * <ul>
+     *   <li><i>вне нормы, инцидента нет</i> — открыть: синхронный INSERT
+     *       (block — гарантия записи до уведомления подписчиков), затем
+     *       публикация события;</li>
+     *   <li><i>вне нормы, инцидент открыт</i> — обновить пиковое отклонение,
+     *       если текущее значение дальше от μ, чем зафиксированное;</li>
+     *   <li><i>в норме, инцидент открыт</i> — закрыть через
+     *       {@link #resolveIncident}.</li>
+     * </ul>
+     *
+     * @param now момент измерения, становится {@code startedAt} нового инцидента
+     */
     private void trackCriticalIncident(OffsetDateTime now) {
         if (criticalIncidentRepository == null) return;
 
@@ -140,6 +205,14 @@ public class MetricGeneratorTask implements Runnable {
         }
     }
 
+    /**
+     * Закрывает активный инцидент: проставляет {@code resolvedAt}, немедленно
+     * публикует событие подписчикам и асинхронно сохраняет UPDATE в БД
+     * (доставка уведомления не ждёт записи — момент закрытия уже зафиксирован
+     * в объекте).
+     *
+     * @param resolvedAt момент возврата значения в норму или останова мониторинга
+     */
     private void resolveIncident(OffsetDateTime resolvedAt) {
         activeIncident.setResolvedAt(resolvedAt);
         if (incidentStreamingService != null) {
@@ -154,6 +227,14 @@ public class MetricGeneratorTask implements Runnable {
         activeIncident = null;
     }
 
+    /**
+     * Абсолютное отклонение значения от базового уровня μ метрики.
+     * Используется для сравнения «какое значение экстремальнее» независимо
+     * от направления выхода (выше или ниже нормы).
+     *
+     * @param value сравниваемое значение; {@code null} трактуется как нулевое отклонение
+     * @return {@code |value − μ|}
+     */
     private double deviationFrom(Double value) {
         if (value == null) return 0.0;
         return Math.abs(value - metric.getMu());

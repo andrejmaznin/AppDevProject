@@ -9,6 +9,15 @@ import org.springframework.security.core.userdetails.UserDetails;
 import java.util.Collection;
 import java.util.List;
 
+/**
+ * Учётная запись оператора системы (таблица {@code users}).
+ *
+ * <p>Реализует {@code UserDetails}, поэтому используется напрямую и для
+ * проверки пароля, и для выпуска токена. Модель прав плоская: у всех
+ * пользователей одна роль {@code ROLE_USER}; блокировки и сроки действия
+ * учётных записей не поддерживаются (все {@code isXxx()} возвращают
+ * {@code true}).</p>
+ */
 @Table("users")
 public class User implements UserDetails {
     @Id
@@ -41,6 +50,7 @@ public class User implements UserDetails {
         this.username = username;
     }
 
+    /** @return BCrypt-хэш пароля (контракт {@code UserDetails}) */
     @Override
     public String getPassword() {
         return passwordHash;

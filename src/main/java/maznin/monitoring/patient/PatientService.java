@@ -10,6 +10,16 @@ import reactor.core.publisher.Mono;
 
 import java.util.UUID;
 
+/**
+ * Бизнес-операции над пациентами.
+ *
+ * <p>Связывает два мира: персистентное состояние ({@code monitoringActive}
+ * в таблице {@code patients}) и рантайм-состояние (задачи генерации в
+ * {@link MetricGenerationEngine}). Инвариант «флаг в БД соответствует
+ * работающим задачам» поддерживается порядком операций: сначала сохранение
+ * флага, затем управление движком; после рестарта его восстанавливает
+ * {@code MonitoringRestoreRunner}.</p>
+ */
 @Service
 public class PatientService {
 
@@ -21,6 +31,13 @@ public class PatientService {
         this.metricGenerationEngine = metricGenerationEngine;
     }
 
+    /**
+     * Создаёт пациента с серверным идентификатором UUIDv7 и выключенным
+     * мониторингом.
+     *
+     * @param request имя и фамилия
+     * @return сохранённый пациент
+     */
     public Mono<Patient> registerPatient(PatientRequest request) {
         Patient patient = new Patient(
                 UuidCreator.getTimeOrderedEpoch(),
@@ -31,15 +48,30 @@ public class PatientService {
         return patientRepository.save(patient);
     }
 
+    /** @return все зарегистрированные пациенты */
     public Flux<Patient> getAllPatients() {
         return patientRepository.findAll();
     }
 
+    /**
+     * Пациент по идентификатору.
+     *
+     * @param id идентификатор
+     * @return пациент; {@code ResponseStatusException} 404, если не найден
+     */
     public Mono<Patient> getPatient(UUID id) {
         return patientRepository.findById(id)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Patient not found")));
     }
 
+    /**
+     * Включает мониторинг: фиксирует флаг в БД, затем запускает задачи
+     * генерации. Запуск движка происходит в {@code doOnNext} после успешного
+     * сохранения — если запись не удалась, задачи не стартуют.
+     *
+     * @param patientId идентификатор пациента
+     * @return завершение операции; 404, если пациент не найден
+     */
     public Mono<Void> startMonitoring(UUID patientId) {
         return patientRepository.findById(patientId)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Patient not found")))
@@ -51,6 +83,14 @@ public class PatientService {
                 .then();
     }
 
+    /**
+     * Выключает мониторинг: снимает флаг в БД, затем останавливает задачи.
+     * Открытые критические инциденты закрываются самими задачами при
+     * завершении.
+     *
+     * @param patientId идентификатор пациента
+     * @return завершение операции; 404, если пациент не найден
+     */
     public Mono<Void> stopMonitoring(UUID patientId) {
         return patientRepository.findById(patientId)
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Patient not found")))

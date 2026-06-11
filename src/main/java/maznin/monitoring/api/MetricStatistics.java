@@ -1,8 +1,13 @@
 package maznin.monitoring.api;
 
 /**
- * Statistical characteristics of one metric over a chosen time interval:
- * mean, variance and quartiles (plus min/max and sample count).
+ * DTO статистических характеристик одной метрики на интервале времени.
+ *
+ * <p>Поля: {@code metric} — ключ метрики, {@code unit} — единица измерения,
+ * {@code count} — число измерений (N), {@code mean} — среднее,
+ * {@code variance} — выборочная дисперсия ({@code null} при N = 1),
+ * {@code min}/{@code max} — экстремумы, {@code q1}/{@code median}/{@code q3} —
+ * квартили (интерполированные, {@code percentile_cont}).</p>
  */
 public class MetricStatistics {
     private String metric;

@@ -9,6 +9,16 @@ import reactor.core.publisher.Mono;
 
 import java.util.List;
 
+/**
+ * Проверка JWT в цепочке WebFlux Security (реализация точки расширения
+ * {@code ReactiveAuthenticationManager}).
+ *
+ * <p>Контракт: валидный токен → {@code Authentication} с логином и ролью
+ * {@code ROLE_USER}; любой невалидный (повреждённый, просроченный, с чужой
+ * подписью) → {@code Mono.empty()}, что фреймворк превращает в 401.
+ * Исключения парсера никогда не пробрасываются — иначе клиент получал бы
+ * 500 вместо 401.</p>
+ */
 @Component
 public class AuthenticationManager implements ReactiveAuthenticationManager {
 
@@ -18,6 +28,12 @@ public class AuthenticationManager implements ReactiveAuthenticationManager {
         this.jwtService = jwtService;
     }
 
+    /**
+     * Аутентифицирует по JWT из {@code credentials}.
+     *
+     * @param authentication токен, упакованный {@link SecurityContextRepository}
+     * @return {@code Authentication} при валидном токене, иначе пустой {@code Mono}
+     */
     @Override
     public Mono<Authentication> authenticate(Authentication authentication) {
         String authToken = authentication.getCredentials().toString();

@@ -16,6 +16,19 @@ import reactor.core.publisher.Sinks;
 
 import java.util.UUID;
 
+/**
+ * Издатель измерений в реальном времени (паттерн Наблюдатель).
+ *
+ * <p>Архитектура «поток через БД»: генераторы пишут измерения только в
+ * PostgreSQL; AFTER INSERT-триггер вызывает {@code pg_notify}, а этот сервис —
+ * единственный долгоживущий слушатель канала {@code measurements_channel} —
+ * раздаёт события всем подписчикам через {@code Sinks.Many}. Подписчики
+ * гарантированно видят только реально сохранённые данные, а источник истины
+ * один — БД.</p>
+ *
+ * <p>Sink — {@code multicast().directBestEffort()}: медленный SSE-клиент не
+ * тормозит остальных, события для него отбрасываются.</p>
+ */
 @Service
 public class StreamingService {
 
@@ -27,6 +40,14 @@ public class StreamingService {
         this.connectionFactory = connectionFactory;
     }
 
+    /**
+     * Инициализация после старта приложения: создаёт в БД функцию и триггер
+     * {@code measurement_notify_trigger} (идемпотентно), выполняет
+     * {@code LISTEN measurements_channel} на выделенном соединении и
+     * перенаправляет входящие уведомления во внутренний sink.
+     * {@code retry()} пересоздаёт подписку при обрыве соединения.
+     * Для не-PostgreSQL БД (тесты на H2) — no-op.
+     */
     @EventListener(ApplicationReadyEvent.class)
     public void init() {
         if (connectionFactory.getMetadata().getName().equalsIgnoreCase("PostgreSQL")) {
@@ -72,6 +93,11 @@ public class StreamingService {
         }
     }
 
+    /**
+     * Разворачивает обёртки пулов соединений до нативного
+     * {@code PostgresqlConnection} — только он даёт доступ к
+     * {@code getNotifications()}.
+     */
     private io.r2dbc.postgresql.api.PostgresqlConnection unwrap(io.r2dbc.spi.Connection connection) {
         if (connection instanceof io.r2dbc.postgresql.api.PostgresqlConnection) {
             return (io.r2dbc.postgresql.api.PostgresqlConnection) connection;
@@ -82,6 +108,11 @@ public class StreamingService {
         throw new IllegalArgumentException("Cannot unwrap connection: " + connection.getClass());
     }
 
+    /**
+     * Разбирает JSON-payload уведомления pg_notify (результат
+     * {@code row_to_json(NEW)}) в {@link Measurement}. Ошибочный payload
+     * логируется и пропускается ({@code null} отфильтровывается выше).
+     */
     private Measurement parseMeasurement(String json) {
         // Quick manual parse or use Jackson ObjectMapper
         // {"id":"...","patient_id":"...","metric":"...","value":75.2,"measured_at":"..."}
@@ -105,10 +136,19 @@ public class StreamingService {
         }
     }
 
+    /** Прямая эмиссия в sink в обход LISTEN/NOTIFY — для тестов. */
     public void emitForTest(Measurement measurement) {
         sink.tryEmitNext(measurement);
     }
 
+    /**
+     * Поток измерений одного пациента в формате SenML. Каждый вызов — новая
+     * подписка на общий sink с фильтром по {@code patientId}; завершается
+     * только отпиской клиента.
+     *
+     * @param patientId идентификатор пациента
+     * @return бесконечный поток измерений пациента
+     */
     public Flux<SenMLMeasurement> getStream(UUID patientId) {
         return sink.asFlux()
                 .filter(m -> m.getPatientId().equals(patientId))

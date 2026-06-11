@@ -13,11 +13,24 @@ import org.springframework.web.server.ServerWebExchange;
 
 import java.net.URI;
 
+/**
+ * Преобразование исключений контроллеров и сервисов в ответы RFC 7807.
+ *
+ * <p>Покрывает всё, что возникает после прохождения цепочки безопасности;
+ * 401/403 формируются отдельно в {@code SecurityConfig} тем же форматом.</p>
+ */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    /**
+     * Ожидаемые ошибки бизнес-логики ({@code ResponseStatusException}:
+     * 404 «пациент не найден», 401 «неверные учётные данные» и т.п.) —
+     * статус и detail берутся из исключения, стектрейс не логируется.
+     *
+     * @return Problem Details с {@code instance} = путь запроса
+     */
     @ExceptionHandler(ResponseStatusException.class)
     public ResponseEntity<ProblemDetail> handleResponseStatus(ResponseStatusException ex, ServerWebExchange exchange) {
         ProblemDetail pd = ProblemDetail.forStatusAndDetail(ex.getStatusCode(), ex.getReason());
@@ -27,6 +40,11 @@ public class GlobalExceptionHandler {
                 .body(pd);
     }
 
+    /**
+     * Последний рубеж: любые непредвиденные исключения → 500 с обезличенным
+     * detail (без утечки внутренних деталей клиенту) и полным стектрейсом
+     * в логе.
+     */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ProblemDetail> handleGeneral(Exception ex, ServerWebExchange exchange) {
         logger.error("Unhandled exception for {} {}", exchange.getRequest().getMethod(),
