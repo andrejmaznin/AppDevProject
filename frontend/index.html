@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Patient Monitoring Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Login view -->
+  <div id="login-view" class="login-wrap">
+    <form id="login-form" class="login-card">
+      <h1>Patient Monitoring</h1>
+      <p class="muted">Войдите для доступа к панели наблюдения</p>
+      <label>
+        Логин
+        <input type="text" id="login-username" autocomplete="username" required>
+      </label>
+      <label>
+        Пароль
+        <input type="password" id="login-password" autocomplete="current-password" required>
+      </label>
+      <button type="submit" id="login-btn">Войти</button>
+      <div id="login-error" class="error" hidden></div>
+    </form>
+  </div>
+
+  <!-- Dashboard view -->
+  <div id="app-view" class="app" hidden>
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h2>Пациенты</h2>
+        <button id="logout-btn" class="ghost" title="Выйти">Выйти</button>
+      </div>
+
+      <form id="add-patient-form" class="add-form">
+        <input type="text" id="new-first-name" placeholder="Имя" required>
+        <input type="text" id="new-last-name" placeholder="Фамилия" required>
+        <button type="submit">+ Добавить</button>
+      </form>
+
+      <ul id="patient-list" class="patient-list"></ul>
+    </aside>
+
+    <main class="main">
+      <div id="placeholder" class="placeholder">
+        <p>Выберите пациента слева, чтобы начать наблюдение</p>
+      </div>
+
+      <div id="patient-panel" hidden>
+        <header class="panel-header">
+          <div>
+            <h2 id="patient-title"></h2>
+            <span id="stream-status" class="status muted">поток не активен</span>
+          </div>
+          <div class="actions">
+            <button id="start-btn">▶ Старт мониторинга</button>
+            <button id="stop-btn" class="danger">■ Стоп</button>
+          </div>
+        </header>
+
+        <section id="charts" class="charts"></section>
+
+        <section class="incidents-card">
+          <div class="incidents-header">
+            <h3>
+              Критические инциденты
+              <span id="active-incident-count" class="incident-count-badge" hidden></span>
+            </h3>
+            <button id="incidents-refresh" class="ghost">Обновить</button>
+          </div>
+          <div id="incidents-body" class="incidents-body">
+            <p class="muted">Нет инцидентов</p>
+          </div>
+        </section>
+
+        <section class="stats-card">
+          <div class="stats-header">
+            <h3>Статистика показателей</h3>
+            <div class="stats-controls">
+              <select id="stats-interval">
+                <option value="5">за 5 минут</option>
+                <option value="15">за 15 минут</option>
+                <option value="60" selected>за 1 час</option>
+                <option value="1440">за 24 часа</option>
+              </select>
+              <button id="stats-refresh" class="ghost">Обновить</button>
+            </div>
+          </div>
+          <div id="stats-body" class="stats-body">
+            <p class="muted">Нет данных</p>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

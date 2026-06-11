@@ -103,6 +103,21 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>3.11.2</version>
+                <configuration>
+                    <encoding>UTF-8</encoding>
+                    <charset>UTF-8</charset>
+                    <docencoding>UTF-8</docencoding>
+                    <doctitle>Patient Monitoring Dashboard — техническая документация</doctitle>
+                    <windowtitle>Patient Monitoring Dashboard API</windowtitle>
+                    <!-- Геттеры/сеттеры без @return не считаются ошибкой -->
+                    <doclint>all,-missing</doclint>
+                    <quiet>true</quiet>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 
