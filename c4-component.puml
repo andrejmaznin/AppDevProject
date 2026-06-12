@@ -1,0 +1,64 @@
+@startuml c4-component
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+title Диаграмма компонентов (C4, уровень 3) — Backend (Spring Boot WebFlux)
+
+Container(spa, "Frontend SPA", "nginx, JavaScript", "Панель наблюдения")
+ContainerDb(db, "База данных", "PostgreSQL", "patients, measurements, critical_incidents, users")
+
+Container_Boundary(backend, "Backend") {
+    Component(authController, "AuthController", "@RestController", "POST /api/v1/auth/token — выдача JWT")
+    Component(authService, "AuthService", "@Service", "Проверка учётных данных (BCrypt), выпуск токена")
+    Component(jwtService, "JwtService", "@Service", "Генерация и валидация JWT (jjwt, HS256, RFC 7519)")
+    Component(security, "Security: SecurityConfig, AuthenticationManager, SecurityContextRepository", "WebFlux Security", "Цепочка фильтров: Bearer-токен из заголовка, 401/403 в формате RFC 7807")
+
+    Component(patientController, "PatientController", "@RestController", "/api/v1/patients: CRUD, start/stop мониторинга, SSE-потоки измерений и инцидентов, история, статистика")
+    Component(patientService, "PatientService", "@Service", "Бизнес-логика пациентов, управление флагом monitoringActive")
+
+    Component(engine, "MetricGenerationEngine", "@Service, реестр задач", "Запускает и останавливает MetricGeneratorTask (по одной на пару пациент+метрика) на виртуальных потоках Java 21")
+    Component(task, "MetricGeneratorTask", "Runnable (Команда)", "Эмулятор датчика: тики генерации значения (Стратегия ValueGenerator / Орнштейн–Уленбек), отдаёт измерения в точку приёма")
+    Component(restoreRunner, "MonitoringRestoreRunner", "ApplicationRunner", "Восстанавливает активный мониторинг после перезапуска")
+
+    Component(ingest, "MeasurementIngestService", "@Service (Фасад)", "Точка приёма измерений в систему — шов для замены эмулятора на шину данных больницы: сохранение + детекция")
+    Component(detector, "CriticalIncidentDetector", "@Service", "Правило «значение вне нормы — критический эпизод»: конечный автомат по парам пациент×метрика, фиксация инцидентов в БД, публикация событий")
+
+    Component(streaming, "StreamingService", "@Service (Наблюдатель)", "PostgreSQL LISTEN measurements_channel → Sinks.Many → Flux SenML-измерений")
+    Component(incidentStreaming, "IncidentStreamingService", "@Service (Наблюдатель)", "Sinks.Many инцидентов → Flux; публикация в момент возникновения и резолва")
+    Component(statistics, "StatisticsService", "@Service", "SQL-агрегация: avg, var_samp, percentile_cont (квартили) по интервалу времени")
+
+    Component(repositories, "Репозитории: PatientRepository, MeasurementRepository, CriticalIncidentRepository, UserRepository", "Spring Data R2DBC", "Реактивный доступ к данным; сущности реализуют Persistable (UUIDv7 присваивается в коде)")
+    Component(errorHandler, "GlobalExceptionHandler", "@RestControllerAdvice", "Преобразование исключений в Problem Details (RFC 9457) с типами из каталога ProblemType")
+    Component(problemCatalog, "ProblemCatalogController + ProblemType", "@RestController + enum-каталог", "GET /api/v1/problems — справочник типов проблем (описание, действия по устранению); источник данных «Базы знаний» во фронтенде")
+}
+
+Rel(spa, security, "Все запросы проходят цепочку фильтров", "HTTP, Bearer JWT")
+Rel(security, jwtService, "Валидация токена")
+Rel(spa, authController, "POST /auth/token", "JSON")
+Rel(spa, problemCatalog, "GET /problems — База знаний", "JSON, без аутентификации")
+Rel(authController, authService, "authenticate()")
+Rel(authService, jwtService, "generateToken()")
+Rel(authService, repositories, "findByUsername()")
+
+Rel(spa, patientController, "REST + SSE", "JSON / text/event-stream")
+Rel(patientController, patientService, "CRUD, start/stop")
+Rel(patientController, streaming, "getStream()")
+Rel(patientController, incidentStreaming, "getStream()")
+Rel(patientController, statistics, "getStatistics()")
+Rel(patientController, repositories, "история измерений и инцидентов")
+
+Rel(patientService, engine, "startMonitoring / stopMonitoring")
+Rel(patientService, repositories, "save / findById")
+Rel(restoreRunner, engine, "startMonitoring при старте приложения")
+Rel(engine, task, "submit на виртуальный поток")
+Rel(task, ingest, "ingest() каждый тик, streamClosed() при стопе")
+Rel(ingest, repositories, "save(Measurement)")
+Rel(ingest, detector, "onMeasurement / onStreamClosed")
+Rel(detector, repositories, "save(CriticalIncident)")
+Rel(detector, incidentStreaming, "publish(incident)")
+
+Rel(repositories, db, "SQL", "R2DBC")
+Rel(statistics, db, "агрегирующий SQL", "DatabaseClient")
+Rel_Back(streaming, db, "LISTEN/NOTIFY (триггер на INSERT)", "R2DBC")
+
+SHOW_LEGEND()
+@enduml

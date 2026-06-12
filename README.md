@@ -13,7 +13,7 @@
 | Стриминг | Server-Sent Events поверх PostgreSQL LISTEN/NOTIFY |
 | Формат телеметрии | SenML (RFC 8428) |
 | Первичные ключи | UUIDv7 (RFC 9562) |
-| Ошибки API | Problem Details (RFC 7807) |
+| Ошибки API | Problem Details (RFC 9457) с каталогом типов и Базой знаний |
 | Временны́е метки | RFC 3339 UTC |
 
 ## Быстрый старт
@@ -140,17 +140,34 @@ event: metric
 data: {"n":"temperature","u":"cel","v":36.7,"t":"2026-06-07T15:21:10.000Z"}
 ```
 
-### Ошибки (RFC 7807 Problem Details)
+### Ошибки (Problem Details, RFC 9457)
+
+Все ошибки — `application/problem+json`; известным классам присвоены
+уникальные стабильные `type`:
 
 ```json
 {
-  "type": "about:blank",
-  "title": "Not Found",
+  "type": "/problems/patient-not-found",
+  "title": "Пациент не найден",
   "status": 404,
   "detail": "Patient not found",
   "instance": "/api/v1/patients/00000000-0000-0000-0000-000000000000"
 }
 ```
+
+| `type` | Статус | Когда |
+|---|---|---|
+| `/problems/invalid-request` | 400 | повреждённый UUID, дата не по RFC 3339, нечитаемый JSON |
+| `/problems/invalid-credentials` | 401 | неверный логин/пароль при выпуске токена |
+| `/problems/authentication-required` | 401 | нет токена / повреждён / просрочен / чужая подпись |
+| `/problems/access-denied` | 403 | недостаточно прав |
+| `/problems/patient-not-found` | 404 | пациент не существует |
+| `/problems/internal-error` | 500 | непредвиденная ошибка (детали в логе) |
+
+Машиночитаемый каталог с описаниями и действиями по устранению:
+`GET /api/v1/problems` (без аутентификации). В интерфейсе он отображается
+в разделе **«База знаний»** (кнопка внизу сайдбара) с текстовым поиском
+и фильтром по статусу.
 
 ## Математическая модель — Процесс Орнштейна–Уленбека
 
@@ -186,7 +203,8 @@ critical_incidents -- id (UUIDv7), patient_id, metric, started_at, resolved_at, 
 
 ```
 AuthServiceTest                  — 3 теста (аутентификация: успех, неверный пароль, пользователь не найден)
-AuthControllerIntegrationTest    — 2 теста (HTTP-уровень)
+AuthControllerIntegrationTest    — 2 теста (HTTP-уровень, тип ошибки RFC 9457)
+ProblemCatalogControllerTest     — 2 теста (каталог типов проблем: состав и заполненность полей)
 JwtServiceTest                   — 5 тестов (выпуск/проверка JWT, просроченный, чужой ключ, мусорный токен)
 AuthenticationManagerTest        — 4 теста (валидный/просроченный/чужой/мусорный токен → 401, не 500)
 PatientControllerIntegrationTest — 8 тестов (регистрация, start/stop, 404, история измерений, инциденты)

@@ -29,7 +29,7 @@
  *   <li>{@link maznin.monitoring.ingest} — точка приёма измерений в систему
  *       и детекция критических инцидентов (шов для замены источника данных);</li>
  *   <li>{@link maznin.monitoring.error} — преобразование исключений в ответы
- *       RFC 7807 Problem Details;</li>
+ *       Problem Details (RFC 9457) и каталог типов проблем;</li>
  *   <li>{@link maznin.monitoring.patient} — доменная модель: пациенты,
  *       измерения, инциденты, REST-контроллер;</li>
  *   <li>{@link maznin.monitoring.security} — проверка JWT в цепочке фильтров

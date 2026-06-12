@@ -55,7 +55,9 @@ class AuthControllerIntegrationTest {
         AuthService authService = new AuthService(userRepository, passwordEncoder, jwtService);
         AuthController authController = new AuthController(authService);
         
-        webTestClient = WebTestClient.bindToController(authController).build();
+        webTestClient = WebTestClient.bindToController(authController)
+                .controllerAdvice(new maznin.monitoring.error.GlobalExceptionHandler())
+                .build();
     }
 
     @Test
@@ -86,6 +88,9 @@ class AuthControllerIntegrationTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(request)
                 .exchange()
-                .expectStatus().isUnauthorized();
+                .expectStatus().isUnauthorized()
+                .expectBody()
+                .jsonPath("$.type").isEqualTo("/problems/invalid-credentials")
+                .jsonPath("$.detail").isEqualTo("Invalid credentials");
     }
 }

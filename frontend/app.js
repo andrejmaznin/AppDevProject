@@ -27,6 +27,7 @@ const state = {
   unsubscribe: null,        // active metrics SSE cancel fn
   incidentUnsubscribe: null,// active incidents SSE cancel fn
   incidentMap: new Map(),   // incidentId -> incident object
+  kbProblems: null,         // cached problem-type catalog (GET /problems)
 };
 
 class MetricBuffer {
@@ -359,6 +360,66 @@ function onIncidentEvent(incident) {
   renderPatientList(); // refresh sidebar badge
 }
 
+// --- knowledge base (problem-type catalog, RFC 9457) ---
+
+async function showKnowledgeBase() {
+  closeStream();
+  state.selectedId = null;
+  $('placeholder').hidden = true;
+  $('patient-panel').hidden = true;
+  $('kb-panel').hidden = false;
+  renderPatientList();
+
+  if (!state.kbProblems) {
+    try {
+      state.kbProblems = await api('/problems');
+    } catch (err) {
+      $('kb-body').innerHTML = '';
+      const p = document.createElement('p');
+      p.className = 'error';
+      p.textContent = 'Не удалось загрузить базу знаний: ' + err.message;
+      $('kb-body').appendChild(p);
+      return;
+    }
+  }
+  renderKnowledgeBase();
+}
+
+function renderKnowledgeBase() {
+  const body = $('kb-body');
+  if (!state.kbProblems) return;
+
+  const query = $('kb-filter').value.trim().toLowerCase();
+  const status = $('kb-status').value;
+
+  const items = state.kbProblems.filter(p => {
+    if (status && String(p.status) !== status) return false;
+    if (!query) return true;
+    return [p.type, p.title, p.description, p.remediation]
+      .some(field => field && field.toLowerCase().includes(query));
+  });
+
+  if (!items.length) {
+    body.innerHTML = '<p class="muted kb-empty">Ничего не найдено — измените запрос или фильтр статуса</p>';
+    return;
+  }
+
+  body.innerHTML = items.map(p => `
+    <article class="kb-item">
+      <div class="kb-item-head">
+        <code class="kb-type">${p.type}</code>
+        <span class="kb-status-badge s${String(p.status)[0]}xx">${p.status}</span>
+      </div>
+      <h3>${p.title}</h3>
+      <dl>
+        <dt>Когда возникает</dt>
+        <dd>${p.description}</dd>
+        <dt>Как устранить</dt>
+        <dd>${p.remediation}</dd>
+      </dl>
+    </article>`).join('');
+}
+
 // --- patients ---
 
 async function refreshPatients() {
@@ -417,6 +478,7 @@ async function selectPatient(id) {
 
   const p = state.patients.find(x => x.id === id);
   $('placeholder').hidden = true;
+  $('kb-panel').hidden = true;
   $('patient-panel').hidden = false;
   $('patient-title').textContent = `${p.firstName} ${p.lastName}`;
   renderPatientList();
@@ -661,6 +723,10 @@ $('stop-btn').addEventListener('click', () => toggleMonitoring('stop'));
 $('incidents-refresh').addEventListener('click', () => {
   if (state.selectedId) loadIncidents(state.selectedId);
 });
+
+$('kb-btn').addEventListener('click', showKnowledgeBase);
+$('kb-filter').addEventListener('input', renderKnowledgeBase);
+$('kb-status').addEventListener('change', renderKnowledgeBase);
 
 $('stats-refresh').addEventListener('click', loadStatistics);
 $('stats-interval').addEventListener('change', loadStatistics);
