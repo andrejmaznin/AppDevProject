@@ -1,0 +1,34 @@
+# Maven
+target/
+*.jar
+*.war
+*.ear
+
+# Git
+.git
+.gitignore
+
+# IDEs
+.idea
+.vscode
+.claude
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project Docs & Temp
+*.docx
+*.pptx
+*.puml
+*.svg
+presentation/
+wireframes/
+CONTEXT.md
+DIAGRAMS.md
+
+# Docker
+docker-compose.yml
+Dockerfile
+.dockerignore
