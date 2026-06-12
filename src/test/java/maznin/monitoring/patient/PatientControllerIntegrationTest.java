@@ -165,7 +165,9 @@ class PatientControllerIntegrationTest {
         PatientController patientController = new PatientController(patientService, streamingService, statisticsService,
                 measurementRepository, incidentRepository, incidentStreamingService);
         
-        webTestClient = WebTestClient.bindToController(patientController).build();
+        webTestClient = WebTestClient.bindToController(patientController)
+                .controllerAdvice(new maznin.monitoring.error.GlobalExceptionHandler())
+                .build();
     }
 
     @Test
@@ -226,11 +228,15 @@ class PatientControllerIntegrationTest {
     }
 
     @Test
-    void getMeasurements_UnknownPatient_ReturnsNotFound() {
+    void getMeasurements_UnknownPatient_ReturnsNotFoundWithProblemType() {
         webTestClient.get()
                 .uri("/api/v1/patients/{id}/measurements", UUID.randomUUID())
                 .exchange()
-                .expectStatus().isNotFound();
+                .expectStatus().isNotFound()
+                .expectBody()
+                .jsonPath("$.type").isEqualTo("/problems/patient-not-found")
+                .jsonPath("$.status").isEqualTo(404)
+                .jsonPath("$.detail").isEqualTo("Patient not found");
     }
 
     @Test

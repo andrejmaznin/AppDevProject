@@ -41,11 +41,42 @@
       </form>
 
       <ul id="patient-list" class="patient-list"></ul>
+
+      <div class="sidebar-footer">
+        <button id="kb-btn" class="ghost kb-btn">📖 База знаний</button>
+      </div>
     </aside>
 
     <main class="main">
       <div id="placeholder" class="placeholder">
         <p>Выберите пациента слева, чтобы начать наблюдение</p>
+      </div>
+
+      <!-- Knowledge base view -->
+      <div id="kb-panel" hidden>
+        <header class="panel-header">
+          <div>
+            <h2>База знаний</h2>
+            <span class="status muted">справочник ошибок API (RFC 9457 Problem Details)</span>
+          </div>
+        </header>
+
+        <section class="kb-card">
+          <div class="kb-controls">
+            <input type="text" id="kb-filter" placeholder="Поиск по типу, названию, описанию…">
+            <select id="kb-status">
+              <option value="">все статусы</option>
+              <option value="400">400 Bad Request</option>
+              <option value="401">401 Unauthorized</option>
+              <option value="403">403 Forbidden</option>
+              <option value="404">404 Not Found</option>
+              <option value="500">500 Internal Server Error</option>
+            </select>
+          </div>
+          <div id="kb-body" class="kb-body">
+            <p class="muted">Загрузка…</p>
+          </div>
+        </section>
       </div>
 
       <div id="patient-panel" hidden>

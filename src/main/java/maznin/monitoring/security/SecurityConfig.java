@@ -1,5 +1,6 @@
 package maznin.monitoring.security;
 
+import maznin.monitoring.error.ProblemType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.buffer.DataBuffer;
@@ -50,9 +51,11 @@ public class SecurityConfig {
         return http
                 .exceptionHandling(spec -> spec
                         .authenticationEntryPoint((exchange, e) ->
-                                writeProblemDetail(exchange, HttpStatus.UNAUTHORIZED, "Full authentication is required"))
+                                writeProblemDetail(exchange, ProblemType.AUTHENTICATION_REQUIRED,
+                                        "Full authentication is required"))
                         .accessDeniedHandler((exchange, e) ->
-                                writeProblemDetail(exchange, HttpStatus.FORBIDDEN, "Access is denied"))
+                                writeProblemDetail(exchange, ProblemType.ACCESS_DENIED,
+                                        "Access is denied"))
                 )
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .formLogin(ServerHttpSecurity.FormLoginSpec::disable)
@@ -61,6 +64,9 @@ public class SecurityConfig {
                 .securityContextRepository(securityContextRepository)
                 .authorizeExchange(spec -> spec
                         .pathMatchers("/api/v1/auth/**").permitAll()
+                        // Каталог типов проблем — статический справочник без персональных
+                        // данных; открыт, чтобы объяснять в т.ч. ошибки входа
+                        .pathMatchers("/api/v1/problems/**").permitAll()
                         .pathMatchers("/v3/api-docs/**", "/webjars/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .anyExchange().authenticated()
                 )
@@ -68,17 +74,19 @@ public class SecurityConfig {
     }
 
     /**
-     * Пишет в ответ JSON-тело RFC 7807 Problem Details с заданным статусом —
+     * Пишет в ответ JSON-тело RFC 9457 Problem Details с типом из каталога —
      * используется обработчиками 401 (authenticationEntryPoint) и 403
-     * (accessDeniedHandler).
+     * (accessDeniedHandler). Формируется здесь, потому что эти ошибки
+     * возникают до контроллеров и {@code @RestControllerAdvice} их не видит.
      */
     private Mono<Void> writeProblemDetail(org.springframework.web.server.ServerWebExchange exchange,
-                                          HttpStatus status, String detail) {
+                                          ProblemType problemType, String detail) {
+        HttpStatus status = problemType.getStatus();
         exchange.getResponse().setStatusCode(status);
         exchange.getResponse().getHeaders().setContentType(MediaType.APPLICATION_PROBLEM_JSON);
         String body = String.format(
-                "{\"type\":\"about:blank\",\"title\":\"%s\",\"status\":%d,\"detail\":\"%s\",\"instance\":\"%s\"}",
-                status.getReasonPhrase(), status.value(), detail,
+                "{\"type\":\"%s\",\"title\":\"%s\",\"status\":%d,\"detail\":\"%s\",\"instance\":\"%s\"}",
+                problemType.uri(), problemType.getTitle(), status.value(), detail,
                 exchange.getRequest().getPath().value()
         );
         DataBuffer buffer = exchange.getResponse().bufferFactory()

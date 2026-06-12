@@ -27,12 +27,14 @@ Container_Boundary(backend, "Backend") {
     Component(statistics, "StatisticsService", "@Service", "SQL-агрегация: avg, var_samp, percentile_cont (квартили) по интервалу времени")
 
     Component(repositories, "Репозитории: PatientRepository, MeasurementRepository, CriticalIncidentRepository, UserRepository", "Spring Data R2DBC", "Реактивный доступ к данным; сущности реализуют Persistable (UUIDv7 присваивается в коде)")
-    Component(errorHandler, "GlobalExceptionHandler", "@RestControllerAdvice", "Преобразование исключений в RFC 7807 Problem Details")
+    Component(errorHandler, "GlobalExceptionHandler", "@RestControllerAdvice", "Преобразование исключений в Problem Details (RFC 9457) с типами из каталога ProblemType")
+    Component(problemCatalog, "ProblemCatalogController + ProblemType", "@RestController + enum-каталог", "GET /api/v1/problems — справочник типов проблем (описание, действия по устранению); источник данных «Базы знаний» во фронтенде")
 }
 
 Rel(spa, security, "Все запросы проходят цепочку фильтров", "HTTP, Bearer JWT")
 Rel(security, jwtService, "Валидация токена")
 Rel(spa, authController, "POST /auth/token", "JSON")
+Rel(spa, problemCatalog, "GET /problems — База знаний", "JSON, без аутентификации")
 Rel(authController, authService, "authenticate()")
 Rel(authService, jwtService, "generateToken()")
 Rel(authService, repositories, "findByUsername()")
