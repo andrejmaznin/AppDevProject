@@ -114,12 +114,7 @@ public class StreamingService {
      * логируется и пропускается ({@code null} отфильтровывается выше).
      */
     private Measurement parseMeasurement(String json) {
-        // Quick manual parse or use Jackson ObjectMapper
-        // {"id":"...","patient_id":"...","metric":"...","value":75.2,"measured_at":"..."}
-        // Since we are creating SenML from it, we just need patientId, metric, value, measuredAt
         try {
-            // A quick hack since we don't have ObjectMapper injected here, 
-            // but wait, we can just use Jackson ObjectMapper.
             org.springframework.boot.json.JacksonJsonParser parser = new org.springframework.boot.json.JacksonJsonParser();
             java.util.Map<String, Object> map = parser.parseMap(json);
             
